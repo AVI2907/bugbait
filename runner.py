@@ -43,12 +43,18 @@ class Sandbox:
             raise ValueError(f"Could not find '{old}' in {file}")
         path.write_text(code.replace(old, new, 1))
 
-    def run_tests(self, timeout=60):
-        """Run pytest in the sandbox. Returns (passed, output)."""
+    def add_file(self, name, content):
+        """Add an extra file (e.g. a generated test) to the sandbox."""
+        path = self.path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    def run_tests(self, *test_paths, timeout=60):
+        """Run pytest in the sandbox (optionally only some test files). Returns (passed, output)."""
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
         try:
             result = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+                [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *test_paths],
                 cwd=self.path, capture_output=True, text=True,
                 timeout=timeout, env=env,
             )
