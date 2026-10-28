@@ -147,7 +147,22 @@ def build_test_file(accepted):
         header = f"# Catches: {bug['old'].strip()} -> {bug['new'].strip()}"
         bodies.append(f"{header}\n{text}")
     head = '"""Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug."""\n\n'
-    return head + "\n".join(imports) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
+    return head + "\n".join(merge_imports(imports)) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
+
+
+def merge_imports(lines):
+    """Combine 'from x import a' and 'from x import b' into 'from x import a, b'."""
+    plain, from_names = [], {}
+    for line in lines:
+        m = re.match(r"^from (\S+) import (.+)$", line)
+        if m and "(" not in line:
+            names = from_names.setdefault(m.group(1), [])
+            for name in (n.strip() for n in m.group(2).split(",")):
+                if name not in names:
+                    names.append(name)
+        elif line not in plain:
+            plain.append(line)
+    return sorted(plain) + [f"from {mod} import {', '.join(names)}" for mod, names in from_names.items()]
 
 
 def main():
