@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BugBait</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0F1B2D;
+    --panel: #15243A;
+    --raise: #1B2D47;
+    --line: #2A3D5C;
+    --text: #E8EEF6;
+    --muted: #8FA3BC;
+    --caught: #2EC4B6;
+    --survived: #FFB547;
+    --closed: #8BE38F;
+    --failed: #FF6B6B;
+    --sans: "Bricolage Grotesque", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--ink); color: var(--text); font-family: var(--sans); }
+  body { min-height: 100vh; }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--survived); outline-offset: 2px; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+  /* top bar */
+  header { border-bottom: 1px solid var(--line); }
+  header .wrap { display: flex; align-items: center; gap: 16px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; }
+  .brand { font-weight: 800; font-size: 22px; letter-spacing: -0.02em; margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  .brand svg { display: block; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  select, input[type=number] {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+  input[type=number] { width: 64px; }
+  .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
+  .btn:hover:not(:disabled) { border-color: var(--muted); }
+  .btn.primary { background: var(--survived); color: #1E1405; border-color: var(--survived); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* hero */
+  .hero { padding: 56px 0 28px; }
+  .status { color: var(--muted); font-size: 15px; min-height: 22px; display: flex; align-items: center; gap: 10px; }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--survived); display: none; }
+  .busy .status .dot { display: inline-block; animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  h1 { font-size: clamp(34px, 5.4vw, 64px); line-height: 1.04; letter-spacing: -0.035em; font-weight: 800; margin: 14px 0 0; max-width: 17ch; }
+  .lede { color: var(--muted); font-size: 18px; line-height: 1.5; max-width: 60ch; margin: 16px 0 0; overflow-wrap: anywhere; }
+
+  .scorebar { display: flex; align-items: baseline; gap: 18px; margin-top: 30px; flex-wrap: wrap; }
+  .score { font-size: clamp(44px, 7vw, 88px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .score.before { color: var(--survived); }
+  .score.after { color: var(--closed); }
+  .arrow { color: var(--muted); font-size: 40px; }
+  .scorecap { color: var(--muted); font-size: 15px; line-height: 1.4; max-width: 30ch; }
+
+  /* the net: one cell per planted bug */
+  .net { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
+  .cell {
+    width: 58px; height: 58px; border-radius: 12px; border: 2px dashed var(--line);
+    display: grid; place-items: center; font-family: var(--mono); font-weight: 600; font-size: 15px;
+    color: var(--muted); background: transparent; cursor: pointer; position: relative;
+    transition: background .35s, border-color .35s, color .35s, transform .2s;
+  }
+  .cell:hover { transform: translateY(-2px); }
+  .cell.caught { background: var(--caught); border: 2px solid var(--caught); color: var(--ink); }
+  .cell.survived, .cell.fixing { border: 2px solid var(--survived); color: var(--survived); background: rgba(255,181,71,.08); }
+  .cell.fixing { animation: pulse 1.1s infinite; }
+  .cell.closed { background: var(--closed); border: 2px solid var(--closed); color: var(--ink); }
+  .cell.skipped { border: 2px solid var(--muted); color: var(--muted); }
+  .cell.failed { border: 2px solid var(--failed); color: var(--failed); }
+  .cell.selected { box-shadow: 0 0 0 3px var(--ink), 0 0 0 5px var(--text); }
+  @keyframes pulse { 50% { background: rgba(255,181,71,.25); } }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; color: var(--muted); font-size: 14px; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .legend i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+
+  /* detail area */
+  main { padding: 28px 0 80px; }
+  .cols { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 24px; align-items: start; }
+  .cols > * { min-width: 0; }
+  .list { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .item { display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); padding: 14px 16px; cursor: pointer; }
+  .item:last-child { border-bottom: 0; }
+  .item:hover, .item.selected { background: var(--panel); }
+  .item .top { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+  .item .where { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+  .item code { display: block; margin-top: 6px; font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { font-size: 13px; font-weight: 600; }
+  .tag.caught { color: var(--caught); } .tag.survived, .tag.fixing { color: var(--survived); }
+  .tag.closed { color: var(--closed); } .tag.skipped { color: var(--muted); } .tag.failed { color: var(--failed); }
+  .tag.pending { color: var(--muted); font-weight: 400; }
+
+  .detail { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; min-height: 280px; }
+  .detail h2 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+  .detail h3 { margin: 26px 0 10px; font-size: 15px; color: var(--muted); font-weight: 600; }
+  .detail p { line-height: 1.55; margin: 8px 0 0; max-width: 68ch; }
+  .empty { color: var(--muted); line-height: 1.6; }
+  pre { margin: 0; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 14px 0; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
+  pre .ln { display: block; padding: 0 16px; white-space: pre; min-height: 1.6em; }
+  pre .ln b { display: inline-block; width: 3.2em; color: #4F6585; font-weight: 400; user-select: none; }
+  pre .del { background: rgba(255,107,107,.13); }
+  pre .add { background: rgba(255,181,71,.16); }
+  pre .del::before { content: "−"; color: var(--failed); margin-right: 8px; }
+  pre .add::before { content: "+"; color: var(--survived); margin-right: 8px; }
+  pre .ctx::before { content: " "; margin-right: 8px; }
+  pre.test .ln::before { content: none; }
+
+  .error { margin-top: 18px; border: 1px solid var(--failed); color: #FFD2D2; border-radius: 10px; padding: 12px 14px; display: none; white-space: pre-wrap; font-size: 14px; }
+
+  @media (max-width: 860px) {
+    .cols { grid-template-columns: minmax(0, 1fr); }
+    .hero { padding-top: 36px; }
+    .cell { width: 48px; height: 48px; }
+  }
+  @media (max-width: 520px) {
+    .wrap { padding: 0 16px; }
+    .controls { width: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+        <path d="M13 2v9" stroke="#8FA3BC" stroke-width="2" stroke-linecap="round"/>
+        <path d="M13 11c4 0 6 3 6 6.5S16 24 12.5 24 7 21.5 7 19" stroke="#FFB547" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <path d="M7 19l-2-2.5" stroke="#FFB547" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      BugBait
+    </div>
+    <div class="controls">
+      <label class="field">Project <select id="target"></select></label>
+      <label class="field">Bugs per file <input id="bugs" type="number" min="1" max="15" value="8"></label>
+      <button class="btn primary" id="run">Run with Muse Spark</button>
+      <button class="btn" id="replay">Replay last run</button>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="status"><span class="dot"></span><span id="status">Ready</span></div>
+    <h1 id="headline">Find out what your tests would miss.</h1>
+    <p class="lede" id="lede">BugBait plants realistic bugs in your code, checks which ones your tests catch, and writes verified tests for the ones that get through.</p>
+    <div class="scorebar" id="scorebar" hidden>
+      <div class="score before" id="scoreBefore">0%</div>
+      <div class="arrow" id="scoreArrow" hidden>→</div>
+      <div class="score after" id="scoreAfter" hidden>0%</div>
+      <div class="scorecap" id="scoreCap"></div>
+    </div>
+    <div class="net" id="net"></div>
+    <div class="legend" id="legend" hidden>
+      <span><i style="background:var(--caught)"></i>Caught by existing tests</span>
+      <span><i style="border:2px solid var(--survived)"></i>Got through</span>
+      <span><i style="background:var(--closed)"></i>Caught by BugBait's new test</span>
+      <span><i style="border:2px solid var(--muted)"></i>Harmless, no test needed</span>
+    </div>
+    <div class="error" id="error"></div>
+  </div>
+</section>
+
+<main>
+  <div class="wrap cols">
+    <div class="list" id="list" hidden></div>
+    <div class="detail" id="detail" hidden></div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pct = (n, t) => t ? Math.floor(n * 100 / t) : 0;
+
+let state, source;
+
+function reset() {
+  state = { bugs: new Map(), selected: null, tests: 0, before: null, after: null, total: 0 };
+  $("net").innerHTML = ""; $("list").innerHTML = "";
+  $("list").hidden = $("detail").hidden = $("legend").hidden = $("scorebar").hidden = true;
+  $("scoreArrow").hidden = $("scoreAfter").hidden = true;
+  $("error").style.display = "none";
+}
+
+function setBusy(on) {
+  document.body.classList.toggle("busy", on);
+  $("run").disabled = $("replay").disabled = $("target").disabled = $("bugs").disabled = on;
+}
+
+function status(text) { $("status").textContent = text; }
+function headline(h, lede) { $("headline").textContent = h; if (lede !== undefined) $("lede").textContent = lede; }
+
+// What a bug looks like right now
+function view(b) {
+  if (b.after === false && b.before === true) return ["closed", "Caught by new test"];
+  if (b.fix?.status === "skipped") return ["skipped", "Harmless"];
+  if (b.fix?.status === "failed") return ["failed", "No test found"];
+  if (b.fixing) return ["fixing", b.attempt > 1 ? `Fixer, try ${b.attempt}` : "Fixer at work"];
+  if (b.before === true) return ["survived", "Got through"];
+  if (b.before === false) return ["caught", "Caught"];
+  return ["pending", "Testing…"];
+}
+
+function render(id) {
+  const b = state.bugs.get(id);
+  const [cls, label] = view(b);
+  const cell = $("cell-" + id);
+  cell.className = "cell " + cls + (state.selected === id ? " selected" : "");
+  cell.setAttribute("aria-label", `Bug ${id}: ${label}`);
+  const item = $("item-" + id);
+  item.className = "item" + (state.selected === id ? " selected" : "");
+  item.querySelector(".tag").className = "tag " + cls;
+  item.querySelector(".tag").textContent = label;
+  if (state.selected === id) renderDetail();
+}
+
+function select(id) {
+  const prev = state.selected;
+  state.selected = id;
+  if (prev) render(prev);
+  render(id);
+}
+
+function codeBlock(b) {
+  const c = b.context; if (!c) return "";
+  const n = b.old.split("\n").length;
+  const out = [];
+  c.lines.forEach((text, i) => {
+    const ln = c.start + i;
+    if (ln === c.line) {
+      const original = c.lines.slice(i, i + n).join("\n");
+      original.split("\n").forEach((t, k) => out.push(`<span class="ln del"><b>${ln + k}</b>${esc(t)}</span>`));
+      original.replace(b.old, b.new).split("\n").forEach(t => out.push(`<span class="ln add"><b></b>${esc(t)}</span>`));
+    } else if (ln > c.line && ln < c.line + n) {
+      // already shown as part of the changed block
+    } else {
+      out.push(`<span class="ln ctx"><b>${ln}</b>${esc(text)}</span>`);
+    }
+  });
+  return `<pre>${out.join("")}</pre>`;
+}
+
+function renderDetail() {
+  const b = state.bugs.get(state.selected); if (!b) return;
+  const [cls, label] = view(b);
+  let html = `<h2>Bug ${b.id} <span class="tag ${cls}" style="font-size:16px;margin-left:8px">${label}</span></h2>
+    <p class="where" style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(b.file)}, line ${b.context?.line ?? "?"}</p>
+    <h3>What the Saboteur changed</h3>${codeBlock(b)}`;
+  if (b.explanation) html += `<h3>${b.before === false ? "Saboteur's reasoning" : "Why the tests missed it"}</h3><p>${esc(b.explanation)}</p>`;
+  if (b.before === false) html += `<p style="color:var(--caught)">The existing tests caught this one. No new test needed.</p>`;
+  if (b.fix?.status === "fixed") {
+    html += `<h3>Test written by the Fixer${b.fix.attempts > 1 ? ` (verified on try ${b.fix.attempts})` : " (verified on first try)"}</h3>
+      <pre class="test">${esc(b.fix.test_code).split("\n").map(l => `<span class="ln">${l}</span>`).join("")}</pre>
+      <p style="color:var(--muted);font-size:14px">Verified: passes on the original code and fails on the buggy code.</p>`;
+  } else if (b.fix?.status === "skipped") {
+    html += `<h3>Fixer's verdict</h3><p>${esc(b.fix.reason)}</p>`;
+  } else if (b.fix?.status === "failed") {
+    html += `<h3>Fixer couldn't write a working test</h3><p>${esc(b.fix.reason)}</p>`;
+  } else if (b.fixing) {
+    html += `<h3>Fixer</h3><p class="empty">Writing a test and checking it against both versions of the code…</p>`;
+  }
+  $("detail").innerHTML = html;
+}
+
+function addBugs(bugs) {
+  state.total = bugs.length;
+  $("net").innerHTML = ""; $("list").innerHTML = "";
+  for (const raw of bugs) {
+    const b = { ...raw, before: null, after: null, fixing: false };
+    state.bugs.set(b.id, b);
+    const cell = document.createElement("button");
+    cell.id = "cell-" + b.id; cell.textContent = b.id; cell.onclick = () => select(b.id);
+    $("net").appendChild(cell);
+    const item = document.createElement("button");
+    item.id = "item-" + b.id; item.onclick = () => select(b.id);
+    item.innerHTML = `<div class="top"><span>Bug ${b.id}</span><span class="tag"></span></div>
+      <div class="where">${esc(b.file)}:${b.context?.line ?? ""}</div>
+      <code>${esc(b.old.trim())} → ${esc(b.new.trim())}</code>`;
+    $("list").appendChild(item);
+  }
+  $("list").hidden = $("detail").hidden = $("legend").hidden = false;
+  state.selected = bugs[0]?.id ?? null;
+  for (const b of state.bugs.values()) render(b.id);
+}
+
+const handlers = {
+  start(d) { status(d.replay ? `Replaying the last run on ${d.target}` : `Starting on ${d.target}${d.model ? " with " + d.model : ""}`);
+             headline(`Checking ${d.target}'s existing tests.`, "First, BugBait makes sure the project's own tests pass."); },
+  baseline(d) {
+    state.tests = d.tests;
+    if (!d.passed) return showError("The project's own tests fail before any bugs are planted. Fix them first:\n\n" + (d.output || ""));
+    status(`${d.tests} existing tests pass`);
+  },
+  saboteur(d) { status(`Saboteur is reading ${d.file}`);
+                headline("Muse Spark is planting bugs.", "The Saboteur looks for small, realistic mistakes that these tests are likely to miss."); },
+  skipped() {},
+  bugs(d) { addBugs(d.bugs); status(state.tests ? `Running ${state.tests} tests against each planted bug` : "Running the tests against each planted bug");
+            headline(`Testing ${d.bugs.length} planted bugs.`, `Each bug runs in its own sandbox against ${state.tests ? "all " + state.tests : "the"} existing tests.`); },
+  bug_result(d) {
+    const b = state.bugs.get(d.id); b.before = d.survived; render(d.id);
+    const done = [...state.bugs.values()].filter(x => x.before !== null).length;
+    status(`${done} of ${state.total} bugs tested`);
+  },
+  score_before(d) {
+    state.before = d;
+    const missed = d.total - d.caught;
+    headline(`The tests caught ${d.caught} of ${d.total} planted bugs.`,
+      missed ? `${missed} got through ${state.tests ? "all " + state.tests + " tests" : "the tests"}. Select a bug to see what changed and why it slipped.`
+             : "Every planted bug was caught. This test suite is in good shape.");
+    $("scorebar").hidden = false;
+    $("scoreBefore").textContent = pct(d.caught, d.total) + "%";
+    $("scoreCap").textContent = "of planted bugs caught by the existing tests";
+    status("Measured");
+    const firstSurvivor = [...state.bugs.values()].find(b => b.before);
+    if (firstSurvivor) select(firstSurvivor.id);
+  },
+  fixer_start(d) {
+    for (const b of state.bugs.values()) if (b.before) { b.fixing = true; render(b.id); }
+    headline(`Writing tests for the ${d.count} that got through.`,
+      "For each one, the Fixer writes a test, then BugBait checks it passes on the original code and fails on the buggy code.");
+    status("Fixer at work");
+  },
+  fix_attempt(d) { const b = state.bugs.get(d.id); b.attempt = d.attempt; render(d.id); },
+  fix_result(d) {
+    const b = state.bugs.get(d.id); b.fixing = false; b.fix = d; render(d.id);
+    status(`Fixer finished bug ${d.id}`);
+  },
+  bug_after(d) { const b = state.bugs.get(d.id); b.after = d.survived; render(d.id); },
+  score_after(d) {
+    state.after = d;
+    headline(`Now ${d.caught} of ${d.total} planted bugs are caught.`,
+      `BugBait added ${d.tests_added} verified test${d.tests_added === 1 ? "" : "s"}, saved to ${d.saved_to}.`);
+    $("scoreArrow").hidden = $("scoreAfter").hidden = false;
+    $("scoreAfter").textContent = pct(d.caught, d.total) + "%";
+    $("scoreCap").textContent = "of planted bugs caught, before and after BugBait's tests";
+  },
+  done(d) { status(d.seconds ? `Finished in ${d.seconds}s` : "Finished"); },
+  error(d) { showError(d.message); },
+};
+
+function showError(msg) { $("error").textContent = msg; $("error").style.display = "block"; status("Stopped"); }
+
+function start(url) {
+  if (source) source.close();
+  reset(); setBusy(true);
+  source = new EventSource(url);
+  for (const [name, fn] of Object.entries(handlers)) source.addEventListener(name, e => fn(JSON.parse(e.data)));
+  source.addEventListener("end", () => { source.close(); setBusy(false); loadTargets(); });
+  source.onerror = () => { source.close(); setBusy(false); if (!state.bugs.size) showError("Lost connection to the BugBait server. Is python app.py still running?"); };
+}
+
+async function loadTargets() {
+  const current = $("target").value;
+  const list = await (await fetch("/api/targets")).json();
+  $("target").innerHTML = list.map(t => `<option value="${esc(t.name)}" data-replay="${t.has_replay}">${esc(t.name)}</option>`).join("");
+  if (current) $("target").value = current;
+  else if (list.some(t => t.name === "inflection")) $("target").value = "inflection";
+  updateReplay();
+}
+function updateReplay() {
+  const opt = $("target").selectedOptions[0];
+  $("replay").disabled = !opt || opt.dataset.replay !== "true";
+  $("replay").title = $("replay").disabled ? "No saved run for this project yet" : "";
+}
+
+$("target").onchange = updateReplay;
+$("run").onclick = () => start(`/api/run?target=${encodeURIComponent($("target").value)}&bugs=${$("bugs").value}`);
+$("replay").onclick = () => start(`/api/replay?target=${encodeURIComponent($("target").value)}`);
+reset(); loadTargets();
+</script>
+</body>
+</html>
