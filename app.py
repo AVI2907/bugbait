@@ -137,5 +137,17 @@ def replay():
 
 
 if __name__ == "__main__":
-    print("BugBait dashboard: http://localhost:5050")
+    import logging
+    import webbrowser
+
+    import flask.cli
+
+    url = "http://localhost:5050"
+    flask.cli.show_server_banner = lambda *args, **kwargs: None  # hide Flask's startup noise
+    logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    print(f"\nBugBait dashboard is running at {url}")
+    print("Your browser should open by itself. If not, open that link.")
+    print("Keep this terminal open while you use the dashboard.")
+    print("When you are completely done, press Ctrl+C here to stop it.\n")
+    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)
