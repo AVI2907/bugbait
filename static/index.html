@@ -115,6 +115,39 @@
   pre .ctx::before { content: " "; margin-right: 8px; }
   pre.test .ln::before { content: none; }
 
+
+  /* weakest spots */
+  .risk { margin-top: 28px; max-width: 760px; }
+  .risk h2 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .risk ol { list-style: none; padding: 0; margin: 12px 0 0; }
+  .risk li { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .risk .bar { height: 10px; border-radius: 5px; background: var(--raise); overflow: hidden; }
+  .risk .bar i { display: block; height: 100%; background: var(--survived); }
+  .risk .what { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+  .risk .what span { color: var(--muted); }
+  .kind { display: inline-block; font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; margin-right: 6px; }
+
+  /* project setup panel */
+  .setup { margin-top: 30px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; max-width: 860px; }
+  .setup label.big { display: block; font-weight: 600; margin-bottom: 10px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row input[type=text] { flex: 1 1 320px; min-width: 0; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 14px; }
+  .hint { color: var(--muted); font-size: 14px; margin-top: 12px; line-height: 1.5; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-weight: 600; }
+  .log { margin-top: 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .files { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .files h2 { font-size: 18px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .filelist { margin-top: 12px; max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+  .file { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; font-family: var(--mono); font-size: 13px; }
+  .file:last-child { border-bottom: 0; }
+  .file:hover { background: var(--raise); }
+  .file span.path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .file span.n { color: var(--muted); white-space: nowrap; }
+  .file input { accent-color: var(--survived); width: 16px; height: 16px; }
+  .runrow { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+  .projline { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-top: 18px; color: var(--muted); font-size: 15px; }
+  .projline strong { color: var(--text); font-family: var(--mono); font-weight: 600; overflow-wrap: anywhere; }
+
   .error { margin-top: 18px; border: 1px solid var(--failed); color: #FFD2D2; border-radius: 10px; padding: 12px 14px; display: none; white-space: pre-wrap; font-size: 14px; }
 
   @media (max-width: 860px) {
@@ -143,10 +176,8 @@
       BugBait
     </div>
     <div class="controls">
-      <label class="field">Project <select id="target"></select></label>
-      <label class="field">Bugs per file <input id="bugs" type="number" min="1" max="15" value="8"></label>
-      <button class="btn primary" id="run">Run with Muse Spark</button>
-      <button class="btn" id="replay">Replay last run</button>
+      <label class="field">Saved runs <select id="recent"></select></label>
+      <button class="btn" id="replay">Replay</button>
     </div>
   </div>
 </header>
@@ -156,6 +187,32 @@
     <div class="status"><span class="dot"></span><span id="status">Ready</span></div>
     <h1 id="headline">Find out what your tests would miss.</h1>
     <p class="lede" id="lede">BugBait plants realistic bugs in your code, checks which ones your tests catch, and writes verified tests for the ones that get through.</p>
+    <div class="projline" id="projline" hidden>
+      <span>Project</span><strong id="projname"></strong>
+      <button class="linkbtn" id="change">Test another project</button>
+    </div>
+
+    <div class="setup" id="setup">
+      <label class="big" for="spec">Which project should BugBait test?</label>
+      <div class="row">
+        <input type="text" id="spec" placeholder="github.com/owner/repo  or  /Users/you/code/project" autocomplete="off" spellcheck="false">
+        <button class="btn" id="browse">Choose folder…</button>
+        <button class="btn primary" id="load">Load project</button>
+      </div>
+      <p class="hint" id="examples"></p>
+      <div class="log" id="log"></div>
+      <div class="files" id="files" hidden>
+        <h2 id="filesTitle">Choose files to attack</h2>
+        <p class="hint" style="margin-top:4px">BugBait plants bugs in these files and checks them against all of the project's tests. Fewer files means a faster run.</p>
+        <div class="filelist" id="filelist"></div>
+        <div class="runrow">
+          <label class="field">Bugs per file <input id="bugs" type="number" min="1" max="15" value="6"></label>
+          <button class="btn primary" id="run">Run with Muse Spark</button>
+          <span class="hint" id="pickcount" style="margin:0"></span>
+        </div>
+      </div>
+    </div>
+
     <div class="scorebar" id="scorebar" hidden>
       <div class="score before" id="scoreBefore">0%</div>
       <div class="arrow" id="scoreArrow" hidden>→</div>
@@ -168,6 +225,15 @@
       <span><i style="border:2px solid var(--survived)"></i>Got through</span>
       <span><i style="background:var(--closed)"></i>Caught by BugBait's new test</span>
       <span><i style="border:2px solid var(--muted)"></i>Harmless, no test needed</span>
+    </div>
+    <div class="risk" id="risk" hidden>
+      <h2>Weakest spots</h2>
+      <p class="hint" style="margin-top:2px">Where planted bugs most often got past the existing tests.</p>
+      <ol id="riskList"></ol>
+    </div>
+    <div class="runrow" id="prRow" hidden>
+      <button class="btn primary" id="prBtn">Open pull request</button>
+      <span class="hint" id="prHint" style="margin:0"></span>
     </div>
     <div class="error" id="error"></div>
   </div>
@@ -184,26 +250,34 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const pct = (n, t) => t ? Math.floor(n * 100 / t) : 0;
+const INTRO = ["Find out what your tests would miss.",
+  "BugBait plants realistic bugs in your code, checks which ones your tests catch, and writes verified tests for the ones that get through."];
 
-let state, source;
+let state, source, current = null;   // current = loaded project info
 
-function reset() {
-  state = { bugs: new Map(), selected: null, tests: 0, before: null, after: null, total: 0 };
+function resetRun() {
+  state = { bugs: new Map(), selected: null, tests: 0, total: 0 };
   $("net").innerHTML = ""; $("list").innerHTML = "";
   $("list").hidden = $("detail").hidden = $("legend").hidden = $("scorebar").hidden = true;
   $("scoreArrow").hidden = $("scoreAfter").hidden = true;
   $("error").style.display = "none";
+  $("prRow").hidden = true; $("risk").hidden = true;
 }
 
 function setBusy(on) {
   document.body.classList.toggle("busy", on);
-  $("run").disabled = $("replay").disabled = $("target").disabled = $("bugs").disabled = on;
+  for (const id of ["run", "replay", "load", "browse", "spec", "recent", "bugs", "change"]) $(id).disabled = on;
+  if (!on) updateReplay();
 }
-
 function status(text) { $("status").textContent = text; }
 function headline(h, lede) { $("headline").textContent = h; if (lede !== undefined) $("lede").textContent = lede; }
+function log(msg) {
+  const line = document.createElement("div"); line.textContent = msg; $("log").appendChild(line);
+  while ($("log").children.length > 6) $("log").firstChild.remove();
+}
+function showSetup(on) { $("setup").hidden = !on; $("projline").hidden = on || !current; }
 
-// What a bug looks like right now
+// ---------- bug cells, list and detail ----------
 function view(b) {
   if (b.after === false && b.before === true) return ["closed", "Caught by new test"];
   if (b.fix?.status === "skipped") return ["skipped", "Harmless"];
@@ -245,7 +319,7 @@ function codeBlock(b) {
       original.split("\n").forEach((t, k) => out.push(`<span class="ln del"><b>${ln + k}</b>${esc(t)}</span>`));
       original.replace(b.old, b.new).split("\n").forEach(t => out.push(`<span class="ln add"><b></b>${esc(t)}</span>`));
     } else if (ln > c.line && ln < c.line + n) {
-      // already shown as part of the changed block
+      // part of the changed block, already shown
     } else {
       out.push(`<span class="ln ctx"><b>${ln}</b>${esc(text)}</span>`);
     }
@@ -257,7 +331,8 @@ function renderDetail() {
   const b = state.bugs.get(state.selected); if (!b) return;
   const [cls, label] = view(b);
   let html = `<h2>Bug ${b.id} <span class="tag ${cls}" style="font-size:16px;margin-left:8px">${label}</span></h2>
-    <p class="where" style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(b.file)}, line ${b.context?.line ?? "?"}</p>
+    <p style="color:var(--muted);font-family:var(--mono);font-size:13px">${esc(b.file)}, line ${b.context?.line ?? "?"}${b.function ? ", in " + esc(b.function) : ""}</p>
+    ${b.kind ? `<p><span class="kind">${esc(b.kind)}</span><span class="kind">realism ${b.realism}/5</span></p>` : ""}
     <h3>What the Saboteur changed</h3>${codeBlock(b)}`;
   if (b.explanation) html += `<h3>${b.before === false ? "Saboteur's reasoning" : "Why the tests missed it"}</h3><p>${esc(b.explanation)}</p>`;
   if (b.before === false) html += `<p style="color:var(--caught)">The existing tests caught this one. No new test needed.</p>`;
@@ -296,26 +371,38 @@ function addBugs(bugs) {
   for (const b of state.bugs.values()) render(b.id);
 }
 
+// ---------- events from the BugBait engine ----------
 const handlers = {
-  start(d) { status(d.replay ? `Replaying the last run on ${d.target}` : `Starting on ${d.target}${d.model ? " with " + d.model : ""}`);
-             headline(`Checking ${d.target}'s existing tests.`, "First, BugBait makes sure the project's own tests pass."); },
+  setup(d) { status(d.message); log(d.message); },
+  start(d) {
+    const p = d.project;
+    state.project = p; state.replay = !!d.replay;
+    $("projname").textContent = p.url ? p.url.replace("https://", "") : (p.source === "example" ? p.name : p.root);
+    showSetup(false); $("projline").hidden = false;
+    status(d.replay ? `Replaying the last run on ${p.name}` : `Starting on ${p.name}${d.model ? " with " + d.model : ""}`);
+    headline(`Checking ${p.name}'s existing tests.`, "First, BugBait makes sure the project's own tests pass.");
+  },
   baseline(d) {
     state.tests = d.tests;
-    if (!d.passed) return showError("The project's own tests fail before any bugs are planted. Fix them first:\n\n" + (d.output || ""));
-    status(`${d.tests} existing tests pass`);
+    if (!d.passed) return showError("The project's own tests can't run cleanly, so BugBait can't measure them yet:\n\n" + (d.output || ""));
+    status(`${d.tests} existing tests pass` + (d.set_aside ? `, ${d.set_aside} already-failing set aside` : ""));
   },
+  files(d) { status(`Attacking ${d.files.length} file${d.files.length === 1 ? "" : "s"}`); },
   saboteur(d) { status(`Saboteur is reading ${d.file}`);
                 headline("Muse Spark is planting bugs.", "The Saboteur looks for small, realistic mistakes that these tests are likely to miss."); },
   skipped() {},
-  bugs(d) { addBugs(d.bugs); status(state.tests ? `Running ${state.tests} tests against each planted bug` : "Running the tests against each planted bug");
-            headline(`Testing ${d.bugs.length} planted bugs.`, `Each bug runs in its own sandbox against ${state.tests ? "all " + state.tests : "the"} existing tests.`); },
+  bugs(d) {
+    addBugs(d.bugs);
+    status(state.tests ? `Running ${state.tests} tests against each planted bug` : "Running the tests against each planted bug");
+    headline(`Testing ${d.bugs.length} planted bugs.`,
+      `Each bug runs in its own sandbox against ${state.tests ? "all " + state.tests : "the"} existing tests.`);
+  },
   bug_result(d) {
     const b = state.bugs.get(d.id); b.before = d.survived; render(d.id);
     const done = [...state.bugs.values()].filter(x => x.before !== null).length;
     status(`${done} of ${state.total} bugs tested`);
   },
   score_before(d) {
-    state.before = d;
     const missed = d.total - d.caught;
     headline(`The tests caught ${d.caught} of ${d.total} planted bugs.`,
       missed ? `${missed} got through ${state.tests ? "all " + state.tests + " tests" : "the tests"}. Select a bug to see what changed and why it slipped.`
@@ -327,6 +414,13 @@ const handlers = {
     const firstSurvivor = [...state.bugs.values()].find(b => b.before);
     if (firstSurvivor) select(firstSurvivor.id);
   },
+  risk(d) {
+    const weak = d.functions.filter(f => f.survived).slice(0, 5);
+    if (!weak.length) return;
+    $("riskList").innerHTML = weak.map(f => `<li><div class="bar" title="${f.survived} of ${f.planted} got through"><i style="width:${Math.round(100 * f.survived / f.planted)}%"></i></div>
+      <div class="what">${esc(f.function)} <span>${esc(f.file)} · ${f.survived} of ${f.planted} got through</span></div></li>`).join("");
+    $("risk").hidden = false;
+  },
   fixer_start(d) {
     for (const b of state.bugs.values()) if (b.before) { b.fixing = true; render(b.id); }
     headline(`Writing tests for the ${d.count} that got through.`,
@@ -334,52 +428,132 @@ const handlers = {
     status("Fixer at work");
   },
   fix_attempt(d) { const b = state.bugs.get(d.id); b.attempt = d.attempt; render(d.id); },
-  fix_result(d) {
-    const b = state.bugs.get(d.id); b.fixing = false; b.fix = d; render(d.id);
-    status(`Fixer finished bug ${d.id}`);
-  },
+  fix_result(d) { const b = state.bugs.get(d.id); b.fixing = false; b.fix = d; render(d.id); status(`Fixer finished bug ${d.id}`); },
   bug_after(d) { const b = state.bugs.get(d.id); b.after = d.survived; render(d.id); },
   score_after(d) {
-    state.after = d;
     headline(`Now ${d.caught} of ${d.total} planted bugs are caught.`,
-      `BugBait added ${d.tests_added} verified test${d.tests_added === 1 ? "" : "s"}, saved to ${d.saved_to}.`);
+      `BugBait added ${d.tests_added} verified test${d.tests_added === 1 ? "" : "s"}, saved to ${d.saved_to}. Add it to the project at ${d.test_path}.`);
     $("scoreArrow").hidden = $("scoreAfter").hidden = false;
     $("scoreAfter").textContent = pct(d.caught, d.total) + "%";
     $("scoreCap").textContent = "of planted bugs caught, before and after BugBait's tests";
+    if (state.project?.github && !state.replay) {
+      $("prRow").hidden = false; $("prBtn").disabled = false;
+      $("prBtn").textContent = "Open pull request";
+      $("prHint").textContent = `Adds the ${d.tests_added} verified test${d.tests_added === 1 ? "" : "s"} to ${state.project.github} on a new branch (or to your fork if you can't push there).`;
+    }
+  },
+  pr(d) {
+    $("prBtn").textContent = "Pull request opened"; $("prBtn").disabled = true;
+    $("prHint").innerHTML = `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--text)">${esc(d.url)}</a>`;
+    status("Pull request opened");
   },
   done(d) { status(d.seconds ? `Finished in ${d.seconds}s` : "Finished"); },
-  error(d) { showError(d.message); },
+  failure(d) {
+    showError(d.message);
+    if ($("prBtn").textContent.startsWith("Opening")) { $("prBtn").textContent = "Open pull request"; $("prBtn").disabled = false; }
+  },
+  project(d) { onProjectLoaded(d); },
 };
 
 function showError(msg) { $("error").textContent = msg; $("error").style.display = "block"; status("Stopped"); }
 
-function start(url) {
+function stream(url, { onEnd } = {}) {
   if (source) source.close();
-  reset(); setBusy(true);
+  setBusy(true);
   source = new EventSource(url);
   for (const [name, fn] of Object.entries(handlers)) source.addEventListener(name, e => fn(JSON.parse(e.data)));
-  source.addEventListener("end", () => { source.close(); setBusy(false); loadTargets(); });
-  source.onerror = () => { source.close(); setBusy(false); if (!state.bugs.size) showError("Lost connection to the BugBait server. Is python app.py still running?"); };
+  source.addEventListener("end", () => { source.close(); setBusy(false); onEnd?.(); });
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED || !document.body.classList.contains("busy")) return;
+    source.close(); setBusy(false); showError("Lost connection to BugBait. Is python app.py still running in your terminal?");
+  };
 }
 
-async function loadTargets() {
-  const current = $("target").value;
-  const list = await (await fetch("/api/targets")).json();
-  $("target").innerHTML = list.map(t => `<option value="${esc(t.name)}" data-replay="${t.has_replay}">${esc(t.name)}</option>`).join("");
-  if (current) $("target").value = current;
-  else if (list.some(t => t.name === "inflection")) $("target").value = "inflection";
+// ---------- choosing a project ----------
+function loadProject(spec) {
+  spec = (spec ?? $("spec").value).trim();
+  if (!spec) { $("spec").focus(); return; }
+  $("spec").value = spec;
+  resetRun(); $("log").innerHTML = ""; $("files").hidden = true; current = null;
+  headline(...INTRO);
+  status("Loading project…");
+  stream(`/api/load?project=${encodeURIComponent(spec)}`);
+}
+
+function onProjectLoaded(p) {
+  current = p;
+  $("log").innerHTML = "";
+  const where = p.url ? p.url.replace("https://", "") : p.root;
+  status(`Loaded ${where}`);
+  $("filesTitle").textContent = p.files.length ? `Choose files to attack in ${p.name}` : `No source files found in ${p.name}`;
+  $("filelist").innerHTML = p.files.map(f => `
+    <label class="file"><input type="checkbox" value="${esc(f.path)}" ${p.suggested.includes(f.path) ? "checked" : ""}>
+      <span class="path">${esc(f.path)}</span><span class="n">${f.lines} lines</span></label>`).join("");
+  $("filelist").onchange = updatePickCount;
+  $("files").hidden = false;
+  updatePickCount();
+  if (p.has_replay) selectRecent(p.name);
+}
+
+function chosenFiles() { return [...$("filelist").querySelectorAll("input:checked")].map(i => i.value); }
+function updatePickCount() {
+  const n = chosenFiles().length;
+  $("pickcount").textContent = n ? `${n} file${n === 1 ? "" : "s"} selected` : "Select at least one file";
+  $("run").disabled = !n;
+}
+
+function runProject() {
+  if (!current) return;
+  resetRun();
+  const files = chosenFiles().join(",");
+  stream(`/api/run?project=${encodeURIComponent(current.spec)}&files=${encodeURIComponent(files)}&bugs=${$("bugs").value}`,
+         { onEnd: loadRecent });
+}
+
+async function browse() {
+  $("browse").disabled = true;
+  status("Choose a folder in the window that just opened…");
+  try {
+    const r = await (await fetch("/api/choose-folder", { method: "POST" })).json();
+    if (r.error) return showError(r.error);
+    if (r.path) loadProject(r.path); else status("Ready");
+  } catch { showError("Couldn't open the folder picker. Paste the folder path instead."); }
+  finally { if (!document.body.classList.contains("busy")) $("browse").disabled = false; }
+}
+
+// ---------- replay ----------
+async function loadRecent() {
+  const list = await (await fetch("/api/recent")).json();
+  const keep = $("recent").value;
+  $("recent").innerHTML = list.length ? list.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join("")
+                                      : `<option value="">No saved runs yet</option>`;
+  if (keep && list.some(r => r.name === keep)) $("recent").value = keep;
   updateReplay();
 }
-function updateReplay() {
-  const opt = $("target").selectedOptions[0];
-  $("replay").disabled = !opt || opt.dataset.replay !== "true";
-  $("replay").title = $("replay").disabled ? "No saved run for this project yet" : "";
+function selectRecent(name) { if ([...$("recent").options].some(o => o.value === name)) $("recent").value = name; }
+function updateReplay() { $("replay").disabled = !$("recent").value; }
+function replay() { resetRun(); stream(`/api/replay?name=${encodeURIComponent($("recent").value)}`); }
+
+async function loadExamples() {
+  const ex = await (await fetch("/api/examples")).json();
+  $("examples").innerHTML = "Paste a public GitHub link, choose a folder on this computer, or try an example: " +
+    ex.map(e => `<button class="linkbtn" data-ex="${esc(e)}">${esc(e)}</button>`).join(", ") + ".";
+  $("examples").querySelectorAll("[data-ex]").forEach(b => b.onclick = () => loadProject(b.dataset.ex));
 }
 
-$("target").onchange = updateReplay;
-$("run").onclick = () => start(`/api/run?target=${encodeURIComponent($("target").value)}&bugs=${$("bugs").value}`);
-$("replay").onclick = () => start(`/api/replay?target=${encodeURIComponent($("target").value)}`);
-reset(); loadTargets();
+$("load").onclick = () => loadProject();
+$("spec").onkeydown = e => { if (e.key === "Enter") loadProject(); };
+$("browse").onclick = browse;
+$("run").onclick = runProject;
+$("replay").onclick = replay;
+$("prBtn").onclick = () => {
+  const keep = { ...state };
+  stream(`/api/pr?name=${encodeURIComponent(state.project.name)}`, { onEnd: () => { state = keep; } });
+  $("prRow").hidden = false; $("prBtn").disabled = true; $("prBtn").textContent = "Opening pull request…";
+};
+$("recent").onchange = updateReplay;
+$("change").onclick = () => { resetRun(); headline(...INTRO); status("Ready"); $("log").innerHTML = ""; showSetup(true); $("projline").hidden = true; $("spec").focus(); };
+resetRun(); loadExamples(); loadRecent();
 </script>
 </body>
 </html>
