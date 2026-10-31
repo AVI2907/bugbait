@@ -31,16 +31,29 @@ class PRError(RuntimeError):
     pass
 
 
+def gh_cli_token():
+    """Token from the GitHub CLI's login, or None."""
+    if not shutil.which("gh"):
+        return None
+    r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
+    return r.stdout.strip() or None if r.returncode == 0 else None
+
+
 def get_token():
-    token = os.getenv("GITHUB_TOKEN", "").strip()
+    token = os.getenv("GITHUB_TOKEN", "").strip() or gh_cli_token()
     if token:
         return token
-    if shutil.which("gh"):
-        r = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.strip()
     raise PRError("No GitHub token found. Add GITHUB_TOKEN=... to BugBait's .env file "
                   "(or install the GitHub CLI and run `gh auth login`).")
+
+
+def dashboard_token():
+    """The token the dashboard manages explicitly (.env only, never the gh CLI).
+
+    The dashboard must not silently fall back to the gh login: otherwise
+    Disconnect appears broken and switching accounts is impossible.
+    """
+    return os.getenv("GITHUB_TOKEN", "").strip() or None
 
 
 def get_token_optional():

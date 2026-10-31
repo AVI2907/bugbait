@@ -60,11 +60,64 @@ def test_connect_rejects_bad_token_without_storing(client, temp_env, monkeypatch
 
 def test_status_and_disconnect(client, temp_env, monkeypatch):
     monkeypatch.setattr(github_pr.GitHub, "call", lambda self, m, p, **k: {"login": "octocat"})
-    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None}
+    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None,
+                                                            "gh_available": False}
     client.post("/api/github/connect", json={"token": "good"})
-    assert client.get("/api/github/status").get_json() == {"connected": True, "login": "octocat"}
+    assert client.get("/api/github/status").get_json() == {"connected": True, "login": "octocat",
+                                                            "gh_available": False}
     client.post("/api/github/disconnect")
-    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None}
+    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None,
+                                                            "gh_available": False}
+
+
+@pytest.fixture
+def gh_authed(temp_env, monkeypatch):
+    """Simulate a machine whose gh CLI is logged in (temp .env still has no token)."""
+    monkeypatch.setattr("shutil.which", lambda c: "/bin/gh")
+
+    class R:
+        returncode = 0
+        stdout = "gh-token\n"
+        stderr = ""
+
+    monkeypatch.setattr(github_pr.subprocess, "run", lambda *a, **k: R())
+
+
+def test_dashboard_ignores_gh_cli(gh_authed):
+    assert github_pr.dashboard_token() is None  # no .env token
+    assert github_pr.get_token() == "gh-token"  # CLI keeps the convenient fallback
+
+
+def test_status_reports_gh_without_connecting(client, gh_authed):
+    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None,
+                                                            "gh_available": True}
+
+
+def test_disconnect_sticks_when_gh_present(client, gh_authed, monkeypatch):
+    monkeypatch.setattr(github_pr.GitHub, "call", lambda self, m, p, **k: {"login": "env-user"})
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    assert client.get("/api/github/status").get_json()["login"] == "env-user"
+    client.post("/api/github/disconnect")
+    assert client.get("/api/github/status").get_json() == {"connected": False, "login": None,
+                                                            "gh_available": True}
+
+
+def test_connect_switches_account_despite_gh(client, gh_authed, monkeypatch):
+    monkeypatch.setattr(github_pr.GitHub, "call", lambda self, m, p, **k: {"login": "second-user"})
+    r = client.post("/api/github/connect", json={"token": "second-token"})
+    assert r.get_json() == {"login": "second-user"}
+    assert client.get("/api/github/status").get_json()["login"] == "second-user"
+
+
+def test_use_cli_imports_gh_login(client, gh_authed, temp_env, monkeypatch):
+    monkeypatch.setattr(github_pr.GitHub, "call", lambda self, m, p, **k: {"login": "gh-user"})
+    r = client.post("/api/github/use-cli")
+    assert r.get_json() == {"login": "gh-user"}
+    assert "GITHUB_TOKEN=gh-token" in temp_env.read_text()
+
+
+def test_repos_requires_dashboard_connection(client, gh_authed):
+    assert client.get("/api/github/repos").status_code == 400
 
 
 def test_repos_returns_trimmed_shape(client, temp_env, monkeypatch):

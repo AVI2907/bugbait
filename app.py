@@ -139,14 +139,16 @@ def choose_folder():
 
 @app.get("/api/github/status")
 def github_status():
-    from github_pr import PRError, get_token_optional, verify_token
-    token = get_token_optional()
-    if not token:
-        return jsonify({"connected": False, "login": None})
-    try:
-        return jsonify({"connected": True, "login": verify_token(token)})
-    except PRError:
-        return jsonify({"connected": False, "login": None})
+    from github_pr import PRError, dashboard_token, gh_cli_token, verify_token
+    gh = bool(gh_cli_token())
+    token = dashboard_token()
+    login = None
+    if token:
+        try:
+            login = verify_token(token)
+        except PRError:
+            token = None
+    return jsonify({"connected": bool(token), "login": login, "gh_available": gh})
 
 
 @app.post("/api/github/connect")
@@ -173,11 +175,29 @@ def github_disconnect():
 
 @app.get("/api/github/repos")
 def github_repos():
-    from github_pr import PRError, get_token, list_repos
+    from github_pr import PRError, dashboard_token, list_repos
     try:
-        return jsonify(list_repos(get_token()))
+        token = dashboard_token()
+        if not token:
+            raise PRError("Not connected. Connect GitHub first.")
+        return jsonify(list_repos(token))
     except PRError as e:
         return jsonify({"error": str(e)}), 400
+
+
+@app.post("/api/github/use-cli")
+def github_use_cli():
+    """Connect using the machine's gh CLI login instead of a pasted token."""
+    from github_pr import PRError, gh_cli_token, save_token, verify_token
+    token = gh_cli_token()
+    if not token:
+        return jsonify({"error": "The GitHub CLI isn't logged in here."}), 400
+    try:
+        login = verify_token(token)
+    except PRError as e:
+        return jsonify({"error": f"That token didn't work: {e}"}), 400
+    save_token(token)
+    return jsonify({"login": login})
 
 
 @app.get("/api/load")

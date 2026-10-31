@@ -6,23 +6,25 @@
 <title>BugBait</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --ink: #0F1B2D;
-    --panel: #15243A;
-    --raise: #1B2D47;
-    --line: #2A3D5C;
-    --text: #E8EEF6;
-    --muted: #8FA3BC;
-    --caught: #2EC4B6;
-    --survived: #FFB547;
-    --closed: #8BE38F;
-    --failed: #FF6B6B;
+    --ink: #131210;
+    --panel: #1C1B18;
+    --raise: #252420;
+    --line: #33312B;
+    --text: #EDE8DC;
+    --muted: #A29C8E;
+    --caught: #4FB3A5;
+    --survived: #E2B466;
+    --closed: #8FC08A;
+    --failed: #DE7A76;
     --sans: "Bricolage Grotesque", system-ui, sans-serif;
+    --serif: "Fraunces", Georgia, serif;
     --mono: "JetBrains Mono", ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
+  ::selection { background: var(--survived); color: #1A1408; }
   [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--ink); color: var(--text); font-family: var(--sans); }
   body { min-height: 100vh; }
@@ -34,7 +36,7 @@
   /* top bar */
   header { border-bottom: 1px solid var(--line); }
   header .wrap { display: flex; align-items: center; gap: 16px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; }
-  .brand { font-weight: 800; font-size: 22px; letter-spacing: -0.02em; margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  .brand { font-family: var(--serif); font-weight: 600; font-size: 21px; letter-spacing: 0; margin-right: auto; display: flex; align-items: center; gap: 10px; }
   .brand svg { display: block; }
   .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
@@ -44,7 +46,7 @@
   input[type=number] { width: 64px; }
   .btn { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 9px 16px; cursor: pointer; font-weight: 600; }
   .btn:hover:not(:disabled) { border-color: var(--muted); }
-  .btn.primary { background: var(--survived); color: #1E1405; border-color: var(--survived); }
+  .btn.primary { background: var(--survived); color: #1A1408; border-color: var(--survived); }
   .btn:disabled { opacity: .45; cursor: not-allowed; }
 
   /* hero */
@@ -53,11 +55,11 @@
   .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--survived); display: none; }
   .busy .status .dot { display: inline-block; animation: blink 1s infinite; }
   @keyframes blink { 50% { opacity: .2; } }
-  h1 { font-size: clamp(34px, 5.4vw, 64px); line-height: 1.04; letter-spacing: -0.035em; font-weight: 800; margin: 14px 0 0; max-width: 17ch; }
-  .lede { color: var(--muted); font-size: 18px; line-height: 1.5; max-width: 60ch; margin: 16px 0 0; overflow-wrap: anywhere; }
+  h1 { font-family: var(--serif); font-size: clamp(32px, 4.6vw, 54px); line-height: 1.08; letter-spacing: -0.01em; font-weight: 500; margin: 14px 0 0; max-width: 20ch; }
+  .lede { color: var(--muted); font-size: 17px; line-height: 1.55; max-width: 62ch; margin: 14px 0 0; overflow-wrap: anywhere; }
 
   .scorebar { display: flex; align-items: baseline; gap: 18px; margin-top: 30px; flex-wrap: wrap; }
-  .score { font-size: clamp(44px, 7vw, 88px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .score { font-family: var(--serif); font-size: clamp(44px, 6.4vw, 76px); font-weight: 500; letter-spacing: 0; line-height: 1; font-variant-numeric: tabular-nums; }
   .score.before { color: var(--survived); }
   .score.after { color: var(--closed); }
   .arrow { color: var(--muted); font-size: 40px; }
@@ -66,8 +68,8 @@
   /* the net: one cell per planted bug */
   .net { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 34px; }
   .cell {
-    width: 58px; height: 58px; border-radius: 12px; border: 2px dashed var(--line);
-    display: grid; place-items: center; font-family: var(--mono); font-weight: 600; font-size: 15px;
+    width: 56px; height: 56px; border-radius: 10px; border: 1px solid var(--line);
+    display: grid; place-items: center; font-family: var(--mono); font-weight: 600; font-size: 14px;
     color: var(--muted); background: transparent; cursor: pointer; position: relative;
     transition: background .35s, border-color .35s, color .35s, transform .2s;
   }
@@ -101,13 +103,13 @@
   .tag.pending { color: var(--muted); font-weight: 400; }
 
   .detail { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; min-height: 280px; }
-  .detail h2 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+  .detail h2 { margin: 0; font-family: var(--serif); font-size: 25px; font-weight: 500; letter-spacing: 0; }
   .detail h3 { margin: 26px 0 10px; font-size: 15px; color: var(--muted); font-weight: 600; }
   .detail p { line-height: 1.55; margin: 8px 0 0; max-width: 68ch; }
   .empty { color: var(--muted); line-height: 1.6; }
   pre { margin: 0; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 14px 0; overflow-x: auto; font-family: var(--mono); font-size: 13px; line-height: 1.6; }
   pre .ln { display: block; padding: 0 16px; white-space: pre; min-height: 1.6em; }
-  pre .ln b { display: inline-block; width: 3.2em; color: #4F6585; font-weight: 400; user-select: none; }
+  pre .ln b { display: inline-block; width: 3.2em; color: #6E675C; font-weight: 400; user-select: none; }
   pre .del { background: rgba(255,107,107,.13); }
   pre .add { background: rgba(255,181,71,.16); }
   pre .del::before { content: "−"; color: var(--failed); margin-right: 8px; }
@@ -118,7 +120,7 @@
 
   /* weakest spots */
   .risk { margin-top: 28px; max-width: 760px; }
-  .risk h2 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .risk h2 { font-family: var(--serif); font-size: 22px; font-weight: 500; margin: 0; letter-spacing: 0; }
   .risk ol { list-style: none; padding: 0; margin: 12px 0 0; }
   .risk li { display: grid; grid-template-columns: 120px 1fr; gap: 14px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .risk .bar { height: 10px; border-radius: 5px; background: var(--raise); overflow: hidden; }
@@ -170,9 +172,9 @@
   <div class="wrap">
     <div class="brand">
       <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
-        <path d="M13 2v9" stroke="#8FA3BC" stroke-width="2" stroke-linecap="round"/>
-        <path d="M13 11c4 0 6 3 6 6.5S16 24 12.5 24 7 21.5 7 19" stroke="#FFB547" stroke-width="2.4" fill="none" stroke-linecap="round"/>
-        <path d="M7 19l-2-2.5" stroke="#FFB547" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M13 2v9" stroke="#A29C8E" stroke-width="2" stroke-linecap="round"/>
+        <path d="M13 11c4 0 6 3 6 6.5S16 24 12.5 24 7 21.5 7 19" stroke="#E2B466" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+        <path d="M7 19l-2-2.5" stroke="#E2B466" stroke-width="2.4" stroke-linecap="round"/>
       </svg>
       BugBait
     </div>
@@ -206,6 +208,7 @@
             <button class="btn primary" id="ghConnect">Connect</button>
           </div>
           <p class="hint" id="ghHelp" hidden>Create a fine-grained token at GitHub → Settings → Developer settings → Personal access tokens, with Contents and Pull requests set to read &amp; write.</p>
+          <p class="hint" id="ghCliHint" hidden>Your <code>gh</code> command line is logged in — <button class="linkbtn" id="ghUseCli">use that login</button> instead of pasting a token.</p>
         </div>
         <div id="ghOn" hidden>
           <div class="row" style="align-items:center">
@@ -552,6 +555,7 @@ async function ghStatus() {
     const s = await (await fetch("/api/github/status")).json();
     $("ghOff").hidden = s.connected;
     $("ghOn").hidden = !s.connected;
+    $("ghCliHint").hidden = !s.gh_available;
     if (s.connected) { $("ghLogin").textContent = "@" + s.login; ghLoadRepos(); }
   } catch { /* unreachable: leave the box as-is */ }
 }
@@ -613,6 +617,11 @@ $("ghConnect").onclick = async () => {
   ghStatus();
 };
 $("ghToken").onkeydown = e => { if (e.key === "Enter") $("ghConnect").click(); };
+$("ghUseCli").onclick = async () => {
+  const r = await (await fetch("/api/github/use-cli", { method: "POST" })).json();
+  if (r.error) return showError(r.error);
+  ghStatus();
+};
 $("ghDisconnect").onclick = async () => { await fetch("/api/github/disconnect", { method: "POST" }); ghReposCache = null; $("ghSearch").value = ""; ghStatus(); };
 $("ghSearch").oninput = e => ghRenderRepos(e.target.value);
 resetRun(); loadExamples(); loadRecent(); ghStatus();
