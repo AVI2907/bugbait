@@ -137,6 +137,49 @@ def choose_folder():
     return jsonify({"path": path.rstrip("/") if path else None})
 
 
+@app.get("/api/github/status")
+def github_status():
+    from github_pr import PRError, get_token_optional, verify_token
+    token = get_token_optional()
+    if not token:
+        return jsonify({"connected": False, "login": None})
+    try:
+        return jsonify({"connected": True, "login": verify_token(token)})
+    except PRError:
+        return jsonify({"connected": False, "login": None})
+
+
+@app.post("/api/github/connect")
+def github_connect():
+    from github_pr import PRError, save_token, verify_token
+    data = request.get_json(silent=True) or {}
+    token = (data.get("token") or "").strip()
+    if not token:
+        return jsonify({"error": "Paste a token first."}), 400
+    try:
+        login = verify_token(token)
+    except PRError as e:
+        return jsonify({"error": f"That token didn't work: {e}"}), 400
+    save_token(token)
+    return jsonify({"login": login})
+
+
+@app.post("/api/github/disconnect")
+def github_disconnect():
+    from github_pr import save_token
+    save_token("")
+    return jsonify({"ok": True})
+
+
+@app.get("/api/github/repos")
+def github_repos():
+    from github_pr import PRError, get_token, list_repos
+    try:
+        return jsonify(list_repos(get_token()))
+    except PRError as e:
+        return jsonify({"error": str(e)}), 400
+
+
 @app.get("/api/load")
 def load_project():
     """Download / set up a project and list the files that can be attacked."""

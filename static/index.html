@@ -131,7 +131,8 @@
   .setup { margin-top: 30px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; max-width: 860px; }
   .setup label.big { display: block; font-weight: 600; margin-bottom: 10px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
-  .row input[type=text] { flex: 1 1 320px; min-width: 0; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 14px; }
+  .row input[type=text], .row input[type=password] { flex: 1 1 320px; min-width: 0; background: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: 14px; }
+  .gh { margin-bottom: 18px; }
   .hint { color: var(--muted); font-size: 14px; margin-top: 12px; line-height: 1.5; }
   .linkbtn { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-weight: 600; }
   .log { margin-top: 14px; font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.7; }
@@ -194,6 +195,29 @@
 
     <div class="setup" id="setup">
       <label class="big" for="spec">Which project should BugBait test?</label>
+      <div class="gh" id="ghBox">
+        <div id="ghOff">
+          <div class="row" style="align-items:center">
+            <button class="btn" id="ghToggle">Connect GitHub…</button>
+            <span class="hint" style="margin:0">to browse your repos, test private code and open pull requests</span>
+          </div>
+          <div class="row" id="ghForm" hidden style="margin-top:10px">
+            <input type="password" id="ghToken" placeholder="github_pat_…" autocomplete="off" spellcheck="false">
+            <button class="btn primary" id="ghConnect">Connect</button>
+          </div>
+          <p class="hint" id="ghHelp" hidden>Create a fine-grained token at GitHub → Settings → Developer settings → Personal access tokens, with Contents and Pull requests set to read &amp; write.</p>
+        </div>
+        <div id="ghOn" hidden>
+          <div class="row" style="align-items:center">
+            <span>Connected as <strong id="ghLogin"></strong></span>
+            <button class="linkbtn" id="ghDisconnect">Disconnect</button>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <input type="text" id="ghSearch" placeholder="Search your repos…" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="filelist" id="ghRepos" hidden style="margin-top:10px"></div>
+        </div>
+      </div>
       <div class="row">
         <input type="text" id="spec" placeholder="github.com/owner/repo  or  /Users/you/code/project" autocomplete="off" spellcheck="false">
         <button class="btn" id="browse">Choose folder…</button>
@@ -521,6 +545,31 @@ async function browse() {
   finally { if (!document.body.classList.contains("busy")) $("browse").disabled = false; }
 }
 
+// ---------- GitHub connect ----------
+let ghReposCache = null;
+async function ghStatus() {
+  try {
+    const s = await (await fetch("/api/github/status")).json();
+    $("ghOff").hidden = s.connected;
+    $("ghOn").hidden = !s.connected;
+    if (s.connected) { $("ghLogin").textContent = "@" + s.login; ghLoadRepos(); }
+  } catch { /* unreachable: leave the box as-is */ }
+}
+async function ghLoadRepos() {
+  const list = await (await fetch("/api/github/repos")).json();
+  if (list.error) { $("ghRepos").hidden = true; return; }
+  ghReposCache = list;
+  ghRenderRepos("");
+}
+function ghRenderRepos(q) {
+  q = q.toLowerCase();
+  const hits = (ghReposCache || []).filter(r => r.full_name.toLowerCase().includes(q)).slice(0, 30);
+  $("ghRepos").hidden = !hits.length;
+  $("ghRepos").innerHTML = hits.map(r =>
+    `<div class="file" data-repo="${esc(r.full_name)}"><span class="path">${esc(r.full_name)}</span><span class="n">${r.private ? "private" : "public"}${r.language ? " · " + esc(r.language) : ""}</span></div>`).join("");
+  $("ghRepos").querySelectorAll("[data-repo]").forEach(el => el.onclick = () => loadProject("https://github.com/" + el.dataset.repo));
+}
+
 // ---------- replay ----------
 async function loadRecent() {
   const list = await (await fetch("/api/recent")).json();
@@ -553,7 +602,20 @@ $("prBtn").onclick = () => {
 };
 $("recent").onchange = updateReplay;
 $("change").onclick = () => { resetRun(); headline(...INTRO); status("Ready"); $("log").innerHTML = ""; showSetup(true); $("projline").hidden = true; $("spec").focus(); };
-resetRun(); loadExamples(); loadRecent();
+$("ghToggle").onclick = () => { $("ghForm").hidden = $("ghHelp").hidden = false; $("ghToggle").hidden = true; $("ghToken").focus(); };
+$("ghConnect").onclick = async () => {
+  $("ghConnect").disabled = true;
+  const r = await (await fetch("/api/github/connect", { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: $("ghToken").value }) })).json();
+  $("ghConnect").disabled = false;
+  if (r.error) return showError(r.error);
+  $("ghToken").value = "";
+  ghStatus();
+};
+$("ghToken").onkeydown = e => { if (e.key === "Enter") $("ghConnect").click(); };
+$("ghDisconnect").onclick = async () => { await fetch("/api/github/disconnect", { method: "POST" }); ghReposCache = null; $("ghSearch").value = ""; ghStatus(); };
+$("ghSearch").oninput = e => ghRenderRepos(e.target.value);
+resetRun(); loadExamples(); loadRecent(); ghStatus();
 </script>
 </body>
 </html>
