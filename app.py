@@ -12,11 +12,24 @@ import queue
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 import engine
 from projects import ROOT, ProjectError, list_examples, resolve
+
+
+def _app_version():
+    try:
+        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
+                           timeout=10, cwd=Path(__file__).parent)
+        return r.stdout.strip() or "dev"
+    except Exception:
+        return "dev"
+
+
+APP_VERSION = _app_version()
 
 app = Flask(__name__, static_folder="static")
 run_lock = threading.Lock()
@@ -71,6 +84,11 @@ def index():
 @app.get("/api/examples")
 def examples():
     return jsonify(list_examples())
+
+
+@app.get("/api/version")
+def version():
+    return jsonify({"version": APP_VERSION})
 
 
 @app.get("/api/recent")

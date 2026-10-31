@@ -153,6 +153,9 @@
 
   .error { margin-top: 18px; border: 1px solid var(--failed); color: #FFD2D2; border-radius: 10px; padding: 12px 14px; display: none; white-space: pre-wrap; font-size: 14px; }
 
+  footer { border-top: 1px solid var(--line); padding: 16px 0 22px; }
+  footer span { color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
+
   @media (max-width: 860px) {
     .cols { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 36px; }
@@ -272,6 +275,10 @@
     <div class="detail" id="detail" hidden></div>
   </div>
 </main>
+
+<footer>
+  <div class="wrap"><span id="ver"></span></div>
+</footer>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -624,6 +631,7 @@ $("ghUseCli").onclick = async () => {
 };
 $("ghDisconnect").onclick = async () => { await fetch("/api/github/disconnect", { method: "POST" }); ghReposCache = null; $("ghSearch").value = ""; ghStatus(); };
 $("ghSearch").oninput = e => ghRenderRepos(e.target.value);
+fetch("/api/version").then(r => r.json()).then(v => $("ver").textContent = "BugBait " + v.version).catch(() => {});
 resetRun(); loadExamples(); loadRecent(); ghStatus();
 </script>
 </body>

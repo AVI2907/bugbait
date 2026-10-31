@@ -85,3 +85,8 @@ def test_endpoint_failure_is_a_visible_error(client, darwin, monkeypatch):
     assert r.status_code == 500
     body = r.get_json()["error"]
     assert "Automation" in body and "paste the folder path" in body
+
+
+def test_version_endpoint(client):
+    v = client.get("/api/version").get_json()["version"]
+    assert isinstance(v, str) and len(v) >= 3
