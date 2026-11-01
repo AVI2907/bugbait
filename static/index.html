@@ -156,6 +156,27 @@
   footer { border-top: 1px solid var(--line); padding: 16px 0 22px; }
   footer span { color: var(--muted); font-size: 12.5px; font-family: var(--mono); }
 
+  /* options menu + panes */
+  .opts { position: relative; }
+  .menu { position: absolute; right: 0; top: calc(100% + 8px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 180px; padding: 6px; z-index: 30; }
+  .menu button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 10px 12px; cursor: pointer; font-size: 14px; }
+  .menu button:hover { background: var(--raise); }
+  .overlay { position: fixed; inset: 0; background: rgba(10, 9, 8, .62); display: grid; place-items: center; z-index: 40; padding: 20px; }
+  .sheet { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; max-width: 640px; width: 100%; max-height: 80vh; overflow: auto; padding: 22px; }
+  .sheethead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .sheethead h2 { font-family: var(--serif); font-weight: 500; margin: 0; font-size: 22px; }
+  .setrow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .setrow:last-child { border-bottom: 0; }
+  .setrow .k { font-weight: 600; }
+  .setrow .d { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .setrow input[type=number] { width: 72px; }
+  .hist { display: flex; align-items: center; gap: 12px; width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); color: inherit; font: inherit; padding: 10px 4px; cursor: pointer; text-align: left; }
+  .hist:last-child { border-bottom: 0; }
+  .hist:hover { background: var(--raise); }
+  .hist .n { font-family: var(--mono); font-size: 13px; }
+  .hist .t { color: var(--muted); font-size: 12px; }
+  .hist .s { margin-left: auto; font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+
   @media (max-width: 860px) {
     .cols { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 36px; }
@@ -184,6 +205,13 @@
     <div class="controls">
       <label class="field">Saved runs <select id="recent"></select></label>
       <button class="btn" id="replay">Replay</button>
+      <div class="opts">
+        <button class="btn" id="options">Options ▾</button>
+        <div class="menu" id="optMenu" hidden>
+          <button data-pane="settings">Settings</button>
+          <button data-pane="history">Score history</button>
+        </div>
+      </div>
     </div>
   </div>
 </header>
@@ -279,6 +307,13 @@
 <footer>
   <div class="wrap"><span id="ver"></span></div>
 </footer>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <div class="sheethead"><h2 id="paneTitle"></h2><button class="btn" id="paneClose">Close</button></div>
+    <div id="paneBody"></div>
+  </div>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -581,6 +616,52 @@ function ghRenderRepos(q) {
   $("ghRepos").querySelectorAll("[data-repo]").forEach(el => el.onclick = () => loadProject("https://github.com/" + el.dataset.repo));
 }
 
+// ---------- options menu ----------
+function openPane(which) {
+  $("overlay").hidden = false;
+  if (which === "settings") { $("paneTitle").textContent = "Settings"; renderSettings(); }
+  else { $("paneTitle").textContent = "Score history"; renderHistory(); }
+}
+
+async function renderSettings() {
+  const s = await (await fetch("/api/github/status")).json().catch(() => null);
+  const v = await (await fetch("/api/version")).json().catch(() => ({}));
+  const bugs = localStorage.getItem("bugbait.bugs") || "6";
+  $("paneBody").innerHTML = `
+    <div class="setrow"><div><div class="k">GitHub</div><div class="d">${s?.connected ? "Connected as @" + esc(s.login) : "Not connected"}</div></div>
+      ${s?.connected ? `<button class="btn" id="setDisc">Disconnect</button>` : `<button class="btn" id="setConn">Connect…</button>`}</div>
+    <div class="setrow"><div><div class="k">Bugs per file</div><div class="d">Default for new runs.</div></div>
+      <input type="number" id="setBugs" min="1" max="15" value="${esc(bugs)}"></div>
+    <div class="setrow"><div><div class="k">Version</div><div class="d">Running build.</div></div><span class="n">${esc(v.version || "")}</span></div>`;
+  $("setBugs").onchange = e => { localStorage.setItem("bugbait.bugs", e.target.value); $("bugs").value = e.target.value; };
+  if ($("setDisc")) $("setDisc").onclick = async () => {
+    await fetch("/api/github/disconnect", { method: "POST" });
+    ghReposCache = null; renderSettings(); ghStatus();
+  };
+  if ($("setConn")) $("setConn").onclick = () => {
+    $("overlay").hidden = true; showSetup(true); $("setup").scrollIntoView();
+  };
+}
+
+async function renderHistory() {
+  $("paneBody").innerHTML = `<p class="empty">Loading…</p>`;
+  const h = await (await fetch("/api/history")).json().catch(() => []);
+  if (!h.length) {
+    $("paneBody").innerHTML = `<p class="empty">No runs yet. Run BugBait on a project and its scores will appear here.</p>`;
+    return;
+  }
+  $("paneBody").innerHTML = h.map((r, i) =>
+    `<button class="hist" data-i="${i}"><span><span class="n">${esc(r.name)}</span><br><span class="t">${esc((r.timestamp || "").replace("T", " "))}</span></span>`
+    + `<span class="s">${pct(r.before.caught, r.before.total)}% → ${pct(r.after.caught, r.after.total)}%`
+    + `${r.tests_added ? ` · +${r.tests_added} test${r.tests_added === 1 ? "" : "s"}` : ""}</span></button>`).join("");
+  $("paneBody").querySelectorAll("[data-i]").forEach(b => b.onclick = () => {
+    const name = h[+b.dataset.i].name;
+    $("overlay").hidden = true;
+    if ([...$("recent").options].some(o => o.value === name)) { $("recent").value = name; replay(); }
+    else showError(`No saved latest run for '${name}' to replay.`);
+  });
+}
+
 // ---------- replay ----------
 async function loadRecent() {
   const list = await (await fetch("/api/recent")).json();
@@ -631,6 +712,13 @@ $("ghUseCli").onclick = async () => {
 };
 $("ghDisconnect").onclick = async () => { await fetch("/api/github/disconnect", { method: "POST" }); ghReposCache = null; $("ghSearch").value = ""; ghStatus(); };
 $("ghSearch").oninput = e => ghRenderRepos(e.target.value);
+$("options").onclick = e => { e.stopPropagation(); $("optMenu").hidden = !$("optMenu").hidden; };
+document.addEventListener("click", () => { $("optMenu").hidden = true; });
+$("optMenu").querySelectorAll("[data-pane]").forEach(b => b.onclick = () => { $("optMenu").hidden = true; openPane(b.dataset.pane); });
+$("paneClose").onclick = () => { $("overlay").hidden = true; };
+$("overlay").addEventListener("click", e => { if (e.target === $("overlay")) $("overlay").hidden = true; });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { $("overlay").hidden = true; $("optMenu").hidden = true; } });
+if (localStorage.getItem("bugbait.bugs")) $("bugs").value = localStorage.getItem("bugbait.bugs");
 fetch("/api/version").then(r => r.json()).then(v => $("ver").textContent = "BugBait " + v.version).catch(() => {});
 resetRun(); loadExamples(); loadRecent(); ghStatus();
 </script>
