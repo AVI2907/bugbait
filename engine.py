@@ -209,25 +209,26 @@ def baseline(project, emit):
             if not passed:
                 emit("baseline", passed=False, tests=0, output=output[-3000:])
                 return None
-        failed = re.findall(r"^FAILED (\S+?)(?: - .*)?$", output, re.M)
-        errored = re.findall(r"^ERROR (\S+?)(?: - .*)?$", output, re.M)
-        if not failed and not errored:
-            if "no tests ran" in output or "no tests collected" in output:
-                emit("baseline", passed=False, tests=0, output=no_tests_message(project))
-            else:
+        else:
+            failed = re.findall(r"^FAILED (\S+?)(?: - .*)?$", output, re.M)
+            errored = re.findall(r"^ERROR (\S+?)(?: - .*)?$", output, re.M)
+            if not failed and not errored:
+                if "no tests ran" in output or "no tests collected" in output:
+                    emit("baseline", passed=False, tests=0, output=no_tests_message(project))
+                else:
+                    emit("baseline", passed=False, tests=0, output=output[-3000:])
+                return None
+            for node in failed:
+                project.pytest_args += ["--deselect", node]
+            for node in errored:
+                project.pytest_args += (["--deselect", node] if "::" in node else ["--ignore", node])
+            emit("setup", message=f"{len(failed) + len(errored)} of the project's tests already fail "
+                                  f"without any planted bugs. BugBait will set them aside.")
+            with Sandbox(project) as sb:
+                passed, output = sb.run_tests(stop_early=False)
+            if not passed:
                 emit("baseline", passed=False, tests=0, output=output[-3000:])
-            return None
-        for node in failed:
-            project.pytest_args += ["--deselect", node]
-        for node in errored:
-            project.pytest_args += (["--deselect", node] if "::" in node else ["--ignore", node])
-        emit("setup", message=f"{len(failed) + len(errored)} of the project's tests already fail "
-                              f"without any planted bugs. BugBait will set them aside.")
-        with Sandbox(project) as sb:
-            passed, output = sb.run_tests(stop_early=False)
-        if not passed:
-            emit("baseline", passed=False, tests=0, output=output[-3000:])
-            return None
+                return None
     if project.language.id == "javascript":
         m = re.search(r"[#ℹ] pass (\d+)", output)
         count = int(m.group(1)) if m else 0

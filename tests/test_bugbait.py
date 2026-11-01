@@ -134,6 +134,18 @@ def test_no_tests_message_with_uncollectable_tests(calc):
     assert "collected no tests" in engine.no_tests_message(calc)
 
 
+def test_python_baseline_sets_aside_failing_tests(tmp_path):
+    import sys
+
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "test_a.py").write_text("from a import f\ndef test_ok():\n    assert f() == 1\n"
+                                        "def test_bad():\n    assert f() == 2\n")
+    p = Project(name="p", root=tmp_path, source="local", python=sys.executable)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.pytest_args == ["--deselect", "test_a.py::test_bad"]
+
+
 def test_baseline_without_tests_explains_itself(tmp_path):
     import sys
 

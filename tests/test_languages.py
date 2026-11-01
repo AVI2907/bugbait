@@ -126,6 +126,28 @@ def test_env_sets_java_home(tmp_path):
     assert env["PATH"].startswith("/jdk21/bin")
 
 
+def test_java_baseline_set_aside_then_passes(tmp_path, monkeypatch):
+    import engine
+    import runner
+
+    (tmp_path / "pom.xml").write_text("<project/>\n")
+    (tmp_path / "A.java").write_text("class A {}\n")
+    p = Project(name="j", root=tmp_path, source="local", language=languages.JAVA)
+    fail_out = "[ERROR] Tests run: 5, Failures: 0, Errors: 5 <<< FAILURE! -- in com.x.BrokenTest\n"
+    ok_out = "[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0\n"
+    calls = {"n": 0}
+
+    def fake_run(self, *a, **k):
+        calls["n"] += 1
+        return (False, fail_out) if calls["n"] == 1 else (True, ok_out)
+
+    monkeypatch.setattr(runner.Sandbox, "run_tests", fake_run)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 8
+    assert p.excluded_java_tests == ["BrokenTest"]
+    assert events[-1][0] == "baseline" and events[-1][1]["passed"] is True
+
+
 def test_maven_command_construction(tmp_path, monkeypatch):
     from runner import Sandbox
 
