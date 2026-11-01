@@ -276,6 +276,7 @@
       <div class="files" id="files" hidden>
         <h2 id="filesTitle">Choose files to attack</h2>
         <p class="hint" style="margin-top:4px">BugBait plants bugs in these files and checks them against all of the project's tests. Fewer files means a faster run.</p>
+        <p class="hint" id="testsHint" hidden></p>
         <div class="filelist" id="filelist"></div>
         <div class="runrow">
           <label class="field">Bugs per file <input id="bugs" type="number" min="1" max="15" value="6"></label>
@@ -584,6 +585,8 @@ function onProjectLoaded(p) {
   const where = p.url ? p.url.replace("https://", "") : p.root;
   status(`Loaded ${where}`);
   $("filesTitle").textContent = p.files.length ? `Choose files to attack in ${p.name}` : `No source files found in ${p.name}`;
+  $("testsHint").hidden = p.test_files !== 0;
+  if (p.test_files === 0) $("testsHint").innerHTML = `No Python test files found in <b>${esc(p.name)}</b> — BugBait measures test suites, so a run will stop at the checks stage. Python projects with pytest or unittest tests work best.`;
   $("filelist").innerHTML = p.files.map(f => `
     <label class="file"><input type="checkbox" value="${esc(f.path)}" ${p.suggested.includes(f.path) ? "checked" : ""}>
       <span class="path">${esc(f.path)}</span><span class="n">${f.lines} lines</span></label>`).join("");
