@@ -16,7 +16,7 @@ Write a pytest test that FAILS on the buggy code and PASSES on the original code
 
 Rules:
 - Test the intended behavior of the ORIGINAL code, not implementation details.
-- Import from the module the same way the existing tests do.
+- Import from the module the same way the existing tests do (the test file sits next to them).
 - Write one or two small, readable test functions whose names start with test_.
 - Reply with ONLY one ```python code block.
 
@@ -24,6 +24,11 @@ If the bug does not change any behavior a reasonable caller depends on (an "equi
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
 CHECK_FILE = "test_bugbait_check.py"
+
+
+def _check_path(project):
+    d = project.test_dir()
+    return CHECK_FILE if d in (".", "") else f"{d}/{CHECK_FILE}"
 
 
 def _extract_code(reply):
@@ -36,24 +41,25 @@ def _extract_code(reply):
     return code + "\n", None
 
 
-def verify_test(target, bug, test_code):
+def verify_test(project, bug, test_code):
     """Return (ok, problem). ok is True only if the test passes on original and fails on buggy code."""
-    with Sandbox(target) as sb:
-        sb.add_file(CHECK_FILE, test_code)
-        passed, output = sb.run_tests(CHECK_FILE)
+    check = _check_path(project)
+    with Sandbox(project) as sb:
+        sb.add_file(check, test_code)
+        passed, output = sb.run_tests(check, stop_early=False)
     if not passed:
         return False, "The test FAILED on the ORIGINAL (correct) code, so the test itself is wrong:\n" + output[-1500:]
 
-    with Sandbox(target) as sb:
+    with Sandbox(project) as sb:
         sb.apply_mutation(bug["file"], bug["old"], bug["new"])
-        sb.add_file(CHECK_FILE, test_code)
-        passed, output = sb.run_tests(CHECK_FILE)
+        sb.add_file(check, test_code)
+        passed, output = sb.run_tests(check)
     if passed:
         return False, "The test PASSED on the BUGGY code, so it does not catch the bug."
     return True, None
 
 
-def write_test(target, bug, source, tests, max_attempts=3, on_attempt=None):
+def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     """Ask Muse Spark for a test, verify it, retry with feedback.
 
     Returns a dict: {"status": "fixed" | "skipped" | "failed", "test_code", "reason", "attempts"}
@@ -71,14 +77,14 @@ def write_test(target, bug, source, tests, max_attempts=3, on_attempt=None):
     for attempt in range(1, max_attempts + 1):
         if on_attempt:
             on_attempt(attempt)
-        reply = chat(messages, temperature=0.2)
+        reply = chat(messages, agent="fixer", temperature=0.2)
         code, skip_reason = _extract_code(reply)
         if code is None:
             if skip_reason and "did not return" not in skip_reason:
                 return {"status": "skipped", "test_code": None, "reason": skip_reason, "attempts": attempt}
             problem = skip_reason
         else:
-            ok, problem = _safe_verify(target, bug, code)
+            ok, problem = _safe_verify(project, bug, code)
             if ok:
                 return {"status": "fixed", "test_code": code, "reason": None, "attempts": attempt}
         messages += [
@@ -88,8 +94,8 @@ def write_test(target, bug, source, tests, max_attempts=3, on_attempt=None):
     return {"status": "failed", "test_code": None, "reason": (problem or "")[:200], "attempts": max_attempts}
 
 
-def _safe_verify(target, bug, code):
+def _safe_verify(project, bug, code):
     try:
-        return verify_test(target, bug, code)
+        return verify_test(project, bug, code)
     except Exception as e:
         return False, f"Running the test crashed: {e}"

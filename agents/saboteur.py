@@ -2,7 +2,10 @@
 
 from llm import chat, extract_json
 
-SYSTEM_PROMPT = """You are the Saboteur in BugBait, a tool that measures how good a project's test suite is.
+KINDS = ["off-by-one", "boundary", "wrong operator", "inverted condition", "wrong default",
+         "swapped arguments", "missing case", "wrong value", "error handling", "other"]
+
+SYSTEM_PROMPT = f"""You are the Saboteur in BugBait, a tool that measures how good a project's test suite is.
 You plant small, realistic bugs (the kind a real developer could accidentally write) to see whether the
 existing tests catch them. Favor subtle bugs that weak tests tend to miss: off-by-one errors, wrong
 comparison operators, boundary conditions, inverted conditions, wrong default values, swapped arguments.
@@ -12,9 +15,16 @@ Rules:
 - "old" must be copied EXACTLY from the source (same spacing), and must appear in the file only once.
 - "new" must keep the code syntactically valid Python.
 - Do not delete whole functions or change function names.
+- Do not add contrived conditions that no developer would write (like `and x < 1000` out of nowhere).
+
+For each bug, also rate "realism" from 1 to 5:
+  5 = a mistake developers make all the time (e.g. < instead of <=)
+  3 = plausible, seen in real code reviews
+  1 = artificial, only written to fool tests
+and pick "kind" from: {", ".join(KINDS)}.
 
 Reply with ONLY a JSON array, no prose:
-[{"old": "...", "new": "...", "explanation": "why the current tests might miss this"}]"""
+[{{"old": "...", "new": "...", "kind": "...", "realism": 4, "explanation": "why the current tests might miss this"}}]"""
 
 
 def generate_bugs(file_name, source, tests, count=5):
@@ -24,15 +34,22 @@ def generate_bugs(file_name, source, tests, count=5):
         f"### {file_name}\n```python\n{source}\n```\n\n"
         f"### Existing tests\n```python\n{tests}\n```"
     )
-    reply = chat([
+    reply = chat(agent="saboteur", messages=[
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_prompt},
     ])
     bugs = extract_json(reply)
     if isinstance(bugs, dict):
         bugs = [bugs]
-    return [
-        {"file": file_name, "old": b["old"], "new": b["new"], "explanation": b.get("explanation", "")}
-        for b in bugs
-        if isinstance(b, dict) and b.get("old") and b.get("new") is not None
-    ]
+    out = []
+    for b in bugs:
+        if not (isinstance(b, dict) and b.get("old") and b.get("new") is not None):
+            continue
+        try:
+            realism = max(1, min(5, int(b.get("realism", 3))))
+        except (TypeError, ValueError):
+            realism = 3
+        kind = b.get("kind") if b.get("kind") in KINDS else "other"
+        out.append({"file": file_name, "old": b["old"], "new": b["new"], "kind": kind,
+                    "realism": realism, "explanation": b.get("explanation", "")})
+    return out

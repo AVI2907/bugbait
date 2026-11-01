@@ -1,0 +1,59 @@
+{
+  "name": "bugbait",
+  "displayName": "BugBait",
+  "description": "Find out what your tests would miss. AI agents plant realistic bugs in your code, show which ones your tests don't catch, and write verified tests to close the gaps.",
+  "version": "0.1.0",
+  "publisher": "avi2907",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/AVI2907/bugbait" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Testing", "Machine Learning"],
+  "keywords": ["testing", "mutation testing", "pytest", "ai", "test coverage"],
+  "icon": "media/icon.png",
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "bugbait.testProject", "title": "Test this project", "category": "BugBait", "icon": "$(bug)" },
+      { "command": "bugbait.testFile", "title": "Test the current file", "category": "BugBait" },
+      { "command": "bugbait.showResults", "title": "Show results", "category": "BugBait" },
+      { "command": "bugbait.addTests", "title": "Add BugBait tests to project", "category": "BugBait" },
+      { "command": "bugbait.openPR", "title": "Open a pull request with BugBait's tests", "category": "BugBait" },
+      { "command": "bugbait.stop", "title": "Stop the current run", "category": "BugBait" },
+      { "command": "bugbait.clear", "title": "Clear warnings", "category": "BugBait" },
+      { "command": "bugbait.locate", "title": "Choose the BugBait folder", "category": "BugBait" }
+    ],
+    "menus": {
+      "editor/title/context": [{ "command": "bugbait.testFile", "when": "resourceLangId == python" }],
+      "explorer/context": [{ "command": "bugbait.testFile", "when": "resourceLangId == python", "group": "bugbait" }],
+      "editor/context": [{ "command": "bugbait.testFile", "when": "resourceLangId == python", "group": "bugbait" }]
+    },
+    "configuration": {
+      "title": "BugBait",
+      "properties": {
+        "bugbait.path": {
+          "type": "string",
+          "default": "",
+          "description": "The BugBait folder (the one containing main.py). Leave empty to be asked."
+        },
+        "bugbait.python": {
+          "type": "string",
+          "default": "",
+          "description": "Python used to run BugBait. Leave empty to use BugBait's own venv."
+        },
+        "bugbait.bugsPerFile": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 15,
+          "description": "How many bugs the Saboteur plants in each file."
+        },
+        "bugbait.writeTests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the Fixer write tests for bugs that get through."
+        }
+      }
+    }
+  }
+}

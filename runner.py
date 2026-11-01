@@ -1,35 +1,41 @@
-"""Sandbox runner: copies a target project, plants bugs, and runs its tests.
+"""Sandbox runner: copies a project, plants a bug, and runs the project's tests.
 
-Each trial runs in a fresh temporary folder outside the repo, so the
-original target is never modified and nothing is left behind.
+Each trial runs in a fresh temporary folder, so the original project is never
+modified and nothing is left behind.
 """
 
-import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
+
+from projects import SKIP_DIRS
 
 ROOT = Path(__file__).parent
 
 
-class Sandbox:
-    """A throwaway copy of a target project. Use with `with Sandbox(...) as sb:`."""
+def _ignore(directory, names):
+    return [n for n in names
+            if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
-    def __init__(self, target_name):
-        self.src = ROOT / "targets" / target_name
-        if not self.src.is_dir():
-            raise FileNotFoundError(f"No target named '{target_name}' in targets/")
+
+class Sandbox:
+    """A throwaway copy of a project. Use with `with Sandbox(project) as sb:`."""
+
+    def __init__(self, project):
+        self.project = project
         self.path = None
 
     def __enter__(self):
         tmp = Path(tempfile.mkdtemp(prefix="bugbait-"))
         self.path = tmp / "project"
-        shutil.copytree(
-            self.src, self.path,
-            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
-        )
+        shutil.copytree(self.project.root, self.path, ignore=_ignore, symlinks=True)
+        # Files the build step generates (like _version.py) that aren't in the source tree
+        for rel, content in self.project.extra_files.items():
+            target = self.path / rel
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
         return self
 
     def __exit__(self, *exc):
@@ -49,15 +55,16 @@ class Sandbox:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
-    def run_tests(self, *test_paths, timeout=60):
-        """Run pytest in the sandbox (optionally only some test files). Returns (passed, output)."""
-        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    def run_tests(self, *test_paths, timeout=300, stop_early=True):
+        """Run pytest in the sandbox (optionally only some test files). Returns (passed, output).
+
+        stop_early: stop at the first failure (fast, used when checking a planted bug).
+        """
+        cmd = [self.project.python, "-m", "pytest", "-q", "--color=no", "-p", "no:cacheprovider", "-p", "no:randomly",
+               "-x" if stop_early else "-rfE", *self.project.pytest_args, *test_paths]
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *test_paths],
-                cwd=self.path, capture_output=True, text=True,
-                timeout=timeout, env=env,
-            )
+            result = subprocess.run(cmd, cwd=self.path, capture_output=True, text=True,
+                                    timeout=timeout, env=self.project.env(self.path))
         except subprocess.TimeoutExpired:
             return False, "Tests timed out (treated as caught)"
         return result.returncode == 0, result.stdout + result.stderr
