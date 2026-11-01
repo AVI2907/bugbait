@@ -10,7 +10,7 @@ import pytest
 
 import engine
 import llm
-from projects import resolve
+from projects import Project, resolve
 
 
 @pytest.fixture(scope="module")
@@ -103,6 +103,33 @@ def test_risk_map_ranks_worst_first():
 
 def test_generated_path_sits_next_to_tests(calc):
     assert engine.generated_path(calc) == engine.GENERATED_NAME  # calculator tests live at root
+
+
+def test_project_info_counts_test_files(calc):
+    assert engine.project_info(calc)["test_files"] == 1
+
+
+def test_no_tests_message_without_test_files(tmp_path):
+    (tmp_path / "app.py").write_text("x = 1\n")
+    p = Project(name="notests", root=tmp_path, source="local")
+    msg = engine.no_tests_message(p)
+    assert "No Python test files" in msg and "Python projects only" in msg
+
+
+def test_no_tests_message_with_uncollectable_tests(calc):
+    assert "collected no tests" in engine.no_tests_message(calc)
+
+
+def test_baseline_without_tests_explains_itself(tmp_path):
+    import sys
+
+    (tmp_path / "app.py").write_text("def f():\n    return 1\n")
+    p = Project(name="notests", root=tmp_path, source="local", python=sys.executable)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) is None
+    name, data = events[-1]
+    assert name == "baseline" and data["passed"] is False
+    assert "No Python test files" in data["output"]
 
 
 # ---------- projects ----------

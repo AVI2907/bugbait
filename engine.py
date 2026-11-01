@@ -110,6 +110,17 @@ def generated_path(project):
     return GENERATED_NAME if d in (".", "") else f"{d}/{GENERATED_NAME}"
 
 
+def no_tests_message(project):
+    """Explain why pytest found nothing to run (the common non-Python-project case)."""
+    n = len(project.test_files())
+    if n == 0:
+        return ("No Python test files were found in this project (BugBait looks for test_*.py, "
+                "*_test.py and tests/ folders). It measures test suites, so it needs pytest or "
+                "unittest tests to run — and right now it supports Python projects only.")
+    return (f"Found {n} test file(s), but pytest collected no tests from them. "
+            "They may need dependencies BugBait couldn't install, or they define no tests.")
+
+
 def baseline(project, emit):
     """Run the project's own tests. Tests that already fail are set aside so they don't hide results.
 
@@ -122,7 +133,10 @@ def baseline(project, emit):
         failed = re.findall(r"^FAILED (\S+?)(?: - .*)?$", output, re.M)
         errored = re.findall(r"^ERROR (\S+?)(?: - .*)?$", output, re.M)
         if not failed and not errored:
-            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            if "no tests ran" in output or "no tests collected" in output:
+                emit("baseline", passed=False, tests=0, output=no_tests_message(project))
+            else:
+                emit("baseline", passed=False, tests=0, output=output[-3000:])
             return None
         for node in failed:
             project.pytest_args += ["--deselect", node]
@@ -138,8 +152,7 @@ def baseline(project, emit):
     m = re.search(r"(\d+) passed", output)
     count = int(m.group(1)) if m else 0
     if count == 0:
-        emit("baseline", passed=False, tests=0,
-             output="No tests were found. BugBait needs a project with pytest or unittest tests.")
+        emit("baseline", passed=False, tests=0, output=no_tests_message(project))
         return None
     set_aside = project.pytest_args.count("--deselect") + project.pytest_args.count("--ignore")
     emit("baseline", passed=True, tests=count, set_aside=set_aside)
@@ -223,7 +236,8 @@ def load_latest_report(name):
 
 def project_info(project):
     from github_pr import github_repo_for
-    info = {"name": project.name, "source": project.source, "url": project.url, "root": str(project.root)}
+    info = {"name": project.name, "source": project.source, "url": project.url, "root": str(project.root),
+            "test_files": len(project.test_files())}
     repo = github_repo_for(info)
     info["github"] = f"{repo[0]}/{repo[1]}" if repo else None
     return info
