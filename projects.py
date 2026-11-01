@@ -9,6 +9,7 @@ BugBait never edits the original project. Every trial runs on a temporary copy.
 """
 
 import base64
+import glob
 import hashlib
 import os
 import re
@@ -42,6 +43,7 @@ class Project:
     source: str             # "example" | "local" | "github"
     url: str | None = None  # GitHub URL when source == "github"
     language: Language = PYTHON  # detected properly by _finish
+    java_home: str | None = None  # selected JDK for Java projects (also set by _finish)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
     pytest_args: list = field(default_factory=list)  # e.g. --deselect for tests that already fail
@@ -129,8 +131,12 @@ class Project:
         """Environment for running tests in a sandbox: the sandbox's code must win over any installed copy."""
         paths = [str(sandbox_root / p) for p in self.pythonpath] + [str(sandbox_root)]
         old = os.environ.get("PYTHONPATH")
-        return {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
-                "PYTHONPATH": os.pathsep.join(paths + ([old] if old else []))}
+        env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+               "PYTHONPATH": os.pathsep.join(paths + ([old] if old else []))}
+        if self.java_home:
+            env["JAVA_HOME"] = self.java_home
+            env["PATH"] = str(Path(self.java_home) / "bin") + os.pathsep + env.get("PATH", "")
+        return env
 
 
 # ---------- finding / creating projects ----------
@@ -221,6 +227,63 @@ def _clone(owner, repo, log, refresh):
     return Project(name=f"{owner}-{repo}", root=dest, source="github", url=url)
 
 
+_jdk_cache = None
+
+
+def _pom_java_version(pom):
+    try:
+        text = pom.read_text()
+    except OSError:
+        return None
+    for tag in ("java.version", "maven.compiler.release", "maven.compiler.source", "maven.compiler.target"):
+        m = re.search(rf"<{tag}>\s*(?:1\.)?(\d+)\s*</{tag}>", text)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _available_jdks():
+    """{major version: JAVA_HOME} for usable JDKs, cached per process."""
+    global _jdk_cache
+    if _jdk_cache is not None:
+        return _jdk_cache
+    found = {}
+    roots = [os.environ["JAVA_HOME"]] if os.environ.get("JAVA_HOME") else []
+    for pattern in ("/opt/homebrew/opt/openjdk*", "/opt/homebrew/Cellar/openjdk*/*",
+                    "/Library/Java/JavaVirtualMachines/*.jdk", "/usr/lib/jvm/*"):
+        roots.extend(glob.glob(pattern))
+    for root in sorted(set(roots)):
+        home = Path(root) / "Contents/Home" if str(root).endswith(".jdk") else Path(root)
+        java = home / "bin/java"
+        if not java.exists():
+            continue
+        try:
+            out = subprocess.run([str(java), "-version"], capture_output=True, text=True, timeout=30)
+        except OSError:
+            continue
+        m = re.search(r'version "(\d+)', out.stderr + out.stdout)
+        if m:
+            found.setdefault(int(m.group(1)), str(home))
+    _jdk_cache = found
+    return found
+
+
+def select_jdk(project, log):
+    """JAVA_HOME for a Maven project: exact match, else lowest newer with a warning."""
+    required = _pom_java_version(project.root / "pom.xml")
+    jdks = _available_jdks()
+    if required is None or required in jdks:
+        return jdks.get(required) if required else None
+    newer = sorted(m for m in jdks if m > required)
+    if newer:
+        log(f"This project wants Java {required}; using Java {newer[0]} (closest available). "
+            f"Some tests may misbehave — install openjdk@{required} for exact results.")
+        return jdks[newer[0]]
+    have = ", ".join(f"Java {m}" for m in sorted(jdks)) or "none found"
+    raise ProjectError(f"This project needs Java {required} (found: {have}). "
+                       f"Install it with: brew install openjdk@{required}")
+
+
 def _finish(project, log):
     project.language = detect(project.root)
     if project.language.id == "javascript":
@@ -242,6 +305,7 @@ def _finish(project, log):
                 raise ProjectError("This project builds with Gradle, which BugBait doesn't run yet "
                                    "(Maven works today). Gradle support is coming.")
             raise ProjectError("No pom.xml found. BugBait needs a Maven project to test Java code.")
+        project.java_home = select_jdk(project, log)
         return project  # Maven manages its own dependencies
     if project.source == "example":
         project.python = sys.executable

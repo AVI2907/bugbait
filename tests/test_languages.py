@@ -77,6 +77,55 @@ def test_finish_gradle_project_says_coming_soon(tmp_path, monkeypatch):
         projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
 
 
+def test_pom_java_version(tmp_path):
+    import projects
+
+    pom = tmp_path / "pom.xml"
+    pom.write_text("<project><properties><java.version>21</java.version></properties></project>")
+    assert projects._pom_java_version(pom) == 21
+    pom.write_text("<project><maven.compiler.release>1.8</maven.compiler.release></project>")
+    assert projects._pom_java_version(pom) == 8
+    pom.write_text("<project></project>")
+    assert projects._pom_java_version(pom) is None
+
+
+def test_select_jdk_exact_match(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "pom.xml").write_text("<project><java.version>21</java.version></project>")
+    monkeypatch.setattr(projects, "_available_jdks", lambda: {17: "/jdk17", 21: "/jdk21"})
+    p = Project(name="j", root=tmp_path, source="local")
+    assert projects.select_jdk(p, log=lambda m: None) == "/jdk21"
+
+
+def test_select_jdk_falls_back_to_newer_with_warning(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "pom.xml").write_text("<project><java.version>21</java.version></project>")
+    monkeypatch.setattr(projects, "_available_jdks", lambda: {23: "/jdk23"})
+    logs = []
+    p = Project(name="j", root=tmp_path, source="local")
+    assert projects.select_jdk(p, log=logs.append) == "/jdk23"
+    assert any("wants Java 21" in m for m in logs)
+
+
+def test_select_jdk_missing_raises_install_hint(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "pom.xml").write_text("<project><java.version>21</java.version></project>")
+    monkeypatch.setattr(projects, "_available_jdks", lambda: {17: "/jdk17"})
+    p = Project(name="j", root=tmp_path, source="local")
+    with pytest.raises(projects.ProjectError, match="brew install openjdk@21"):
+        projects.select_jdk(p, log=lambda m: None)
+
+
+def test_env_sets_java_home(tmp_path):
+    p = Project(name="j", root=tmp_path, source="local", java_home="/jdk21")
+    env = p.env(tmp_path)
+    assert env["JAVA_HOME"] == "/jdk21"
+    assert env["PATH"].startswith("/jdk21/bin")
+
+
 def test_maven_command_construction(tmp_path, monkeypatch):
     from runner import Sandbox
 
