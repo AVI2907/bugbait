@@ -21,10 +21,11 @@ Working top-down. Checked = built.
 - [ ] Incremental runs (only attack files changed in the PR/branch)
 - [ ] Budget caps (max spend per run, graceful stop)
 
-## Phase 5 — More languages (JavaScript done, Java next)
+## Phase 5 — More languages (JavaScript + Java done)
 - [x] JavaScript (node:test, zero dependencies) + demo target
+- [x] Java (Maven): JDK auto-select, set-aside, demo target — proven on order-service
 - [ ] JavaScript: jest/vitest projects + TypeScript
-- [ ] Java (Maven/Gradle) — next
+- [ ] Gradle support (incl. Kotlin Android)
 - [ ] Severity per surviving bug (critical/major/cosmetic)
 
 ## Phase 6 — Deeper experience
