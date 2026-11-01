@@ -35,3 +35,16 @@ Working top-down. Checked = built.
 - [ ] Trends dashboard (score over time per repo/file)
 - [ ] Scheduled digests (email/Slack)
 - [ ] Hosted cloud runs / GitHub App / education mode
+
+## Phase 8 — Desktop software
+- [ ] Tauri shell + Python sidecar (current dashboard runs unchanged inside)
+- [ ] Signed installers per OS (macOS first), auto-updates
+
+## Phase 9 — Hosted website security
+- [ ] GitHub OAuth login (no stored passwords)
+- [ ] TOTP MFA + backup codes, then passkeys
+
+## Shipped extras (user requests)
+- [x] Options menu: Settings + Score history panes
+- [x] Guided setup steps, remembered input, autoscroll
+- [x] SECURITY.md threat model
