@@ -56,12 +56,15 @@ class Sandbox:
         path.write_text(content)
 
     def run_tests(self, *test_paths, timeout=300, stop_early=True):
-        """Run pytest in the sandbox (optionally only some test files). Returns (passed, output).
+        """Run the project's tests in the sandbox (optionally only some test files). Returns (passed, output).
 
         stop_early: stop at the first failure (fast, used when checking a planted bug).
         """
-        cmd = [self.project.python, "-m", "pytest", "-q", "--color=no", "-p", "no:cacheprovider", "-p", "no:randomly",
-               "-x" if stop_early else "-rfE", *self.project.pytest_args, *test_paths]
+        if self.project.language.id == "javascript":
+            cmd = ["node", "--test", *test_paths]
+        else:
+            cmd = [self.project.python, "-m", "pytest", "-q", "--color=no", "-p", "no:cacheprovider",
+                   "-p", "no:randomly", "-x" if stop_early else "-rfE", *self.project.pytest_args, *test_paths]
         try:
             result = subprocess.run(cmd, cwd=self.path, capture_output=True, text=True,
                                     timeout=timeout, env=self.project.env(self.path))

@@ -23,12 +23,7 @@ ROOT = Path(__file__).parent
 # Cloned repos and per-project environments (git-ignored). Override with BUGBAIT_WORKSPACE.
 WORKSPACE = Path(os.environ.get("BUGBAIT_WORKSPACE") or ROOT / "workspace").expanduser()
 
-# Folders that are never copied into a sandbox or scanned for source files
-SKIP_DIRS = {
-    ".git", ".hg", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox",
-    "node_modules", "venv", ".venv", "env", ".env", "build", "dist", ".eggs", "site-packages",
-    ".idea", ".vscode", "htmlcov", ".ipynb_checkpoints",
-}
+from languages import PYTHON, SKIP_DIRS, Language, detect  # noqa: E402  (SKIP_DIRS re-exported for runner)
 NOT_SOURCE_DIRS = {"tests", "test", "testing", "docs", "doc", "examples", "example", "benchmarks", "scripts",
                    "tools", "bin", "migrations"}
 NOT_SOURCE_FILES = {"setup.py", "conftest.py", "noxfile.py", "fabfile.py", "manage.py", "__main__.py"}
@@ -46,6 +41,7 @@ class Project:
     root: Path              # the original project folder (never modified)
     source: str             # "example" | "local" | "github"
     url: str | None = None  # GitHub URL when source == "github"
+    language: Language = PYTHON  # detected properly by _finish
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
     pytest_args: list = field(default_factory=list)  # e.g. --deselect for tests that already fail
@@ -53,26 +49,25 @@ class Project:
 
     # ----- files -----
     def is_test_file(self, rel: Path) -> bool:
-        return (rel.name.startswith("test_") or rel.name.endswith("_test.py") or rel.name in ("test.py", "tests.py")
-                or any(p in ("tests", "test", "testing") for p in rel.parts[:-1]))
+        return self.language.is_test_file(rel)
 
-    def python_files(self):
-        """All .py files in the project (relative paths), skipping venvs, caches and build output."""
+    def code_files(self):
+        """All source files in the project's language (relative paths), skipping venvs and caches."""
         out = []
         for dirpath, dirnames, filenames in os.walk(self.root):
             dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not d.endswith(".egg-info"))
             for f in sorted(filenames):
-                if f.endswith(".py"):
+                if f.endswith(self.language.extensions):
                     out.append((Path(dirpath) / f).relative_to(self.root))
         return out
 
     def test_files(self):
-        return [p for p in self.python_files() if self.is_test_file(p)]
+        return [p for p in self.code_files() if self.is_test_file(p)]
 
     def source_files(self):
         """Files worth attacking: real code, not tests, docs, examples or empty __init__ files."""
         out = []
-        for rel in self.python_files():
+        for rel in self.code_files():
             if self.is_test_file(rel) or rel.name in NOT_SOURCE_FILES:
                 continue
             if any(p in NOT_SOURCE_DIRS for p in rel.parts[:-1]):
@@ -227,6 +222,12 @@ def _clone(owner, repo, log, refresh):
 
 
 def _finish(project, log):
+    project.language = detect(project.root)
+    if project.language.id == "javascript":
+        if not shutil.which("node"):
+            raise ProjectError("This is a JavaScript project, but Node.js isn't installed. "
+                               "Install Node.js 18+ and try again.")
+        return project  # node --test needs no environment setup
     if project.source == "example":
         project.python = sys.executable
     else:
