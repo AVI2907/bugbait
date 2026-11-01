@@ -69,6 +69,9 @@ class Sandbox:
             if test_paths:
                 names = ",".join(Path(p).stem for p in test_paths)
                 cmd += [f"-Dtest={names}", "-Dsurefire.failIfNoSpecifiedTests=false"]
+            elif self.project.excluded_java_tests:
+                cmd += [f"-Dtest={','.join('!' + e for e in self.project.excluded_java_tests)}",
+                        "-Dsurefire.failIfNoSpecifiedTests=false"]
         else:
             cmd = [self.project.python, "-m", "pytest", "-q", "--color=no", "-p", "no:cacheprovider",
                    "-p", "no:randomly", "-x" if stop_early else "-rfE", *self.project.pytest_args, *test_paths]

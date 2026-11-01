@@ -144,6 +144,10 @@ def test_maven_command_construction(tmp_path, monkeypatch):
         sb.run_tests("src/test/java/calc/CalcTest.java")
     assert seen[0][:3] == ["mvn", "-B", "test"]
     assert "-Dtest=CalcTest" in seen[1]
+    p.excluded_java_tests = ["BrokenTest", "FlakyTest"]
+    with Sandbox(p) as sb:
+        sb.run_tests()
+    assert "-Dtest=!BrokenTest,!FlakyTest" in seen[2]
 
 
 def test_python_test_files():

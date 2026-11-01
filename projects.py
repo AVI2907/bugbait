@@ -44,6 +44,7 @@ class Project:
     url: str | None = None  # GitHub URL when source == "github"
     language: Language = PYTHON  # detected properly by _finish
     java_home: str | None = None  # selected JDK for Java projects (also set by _finish)
+    excluded_java_tests: list = field(default_factory=list)  # test classes that already fail
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
     pytest_args: list = field(default_factory=list)  # e.g. --deselect for tests that already fail

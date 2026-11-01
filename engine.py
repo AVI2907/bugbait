@@ -190,12 +190,25 @@ def baseline(project, emit):
     with Sandbox(project) as sb:
         passed, output = sb.run_tests(stop_early=False)
     if not passed:
-        if project.language.id != "python":
+        if project.language.id == "javascript":
             if "no tests found" in output.lower() or "# tests 0" in output or "No tests to run" in output:
                 emit("baseline", passed=False, tests=0, output=no_tests_message(project))
             else:
                 emit("baseline", passed=False, tests=0, output=output[-3000:])
             return None
+        if project.language.id == "java":
+            failed = re.findall(r"<<< (?:FAILURE|ERROR)! -- in ([\w.]+)", output)
+            if not failed:
+                emit("baseline", passed=False, tests=0, output=output[-3000:])
+                return None
+            project.excluded_java_tests = sorted({c.split(".")[-1] for c in failed})
+            emit("setup", message=f"{len(project.excluded_java_tests)} test classes already fail "
+                                  f"without any planted bugs. BugBait will set them aside.")
+            with Sandbox(project) as sb:
+                passed, output = sb.run_tests(stop_early=False)
+            if not passed:
+                emit("baseline", passed=False, tests=0, output=output[-3000:])
+                return None
         failed = re.findall(r"^FAILED (\S+?)(?: - .*)?$", output, re.M)
         errored = re.findall(r"^ERROR (\S+?)(?: - .*)?$", output, re.M)
         if not failed and not errored:
@@ -231,7 +244,10 @@ def baseline(project, emit):
     if count == 0:
         emit("baseline", passed=False, tests=0, output=no_tests_message(project))
         return None
-    set_aside = project.pytest_args.count("--deselect") + project.pytest_args.count("--ignore")
+    if project.language.id == "java":
+        set_aside = len(project.excluded_java_tests)
+    else:
+        set_aside = project.pytest_args.count("--deselect") + project.pytest_args.count("--ignore")
     emit("baseline", passed=True, tests=count, set_aside=set_aside)
     return count
 
