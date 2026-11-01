@@ -63,7 +63,8 @@ Give it any of these:
 
 Java notes: BugBait picks the JDK your `pom.xml` asks for (and tells you how to install it if missing).
 Multi-module repos without a top-level `pom.xml` ask you to open one service folder. Gradle projects
-aren't supported yet.
+work via their `gradlew` wrapper (or a `gradle` install) — Android projects additionally need the
+Android SDK with `ANDROID_HOME` set.
 
 For downloaded and local projects, BugBait creates a separate Python environment, installs the project's dependencies, and sets aside any tests that already fail, so they don't hide the results.
 

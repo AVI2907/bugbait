@@ -24,8 +24,9 @@ Working top-down. Checked = built.
 ## Phase 5 — More languages (JavaScript + Java done)
 - [x] JavaScript (node:test, zero dependencies) + demo target
 - [x] Java (Maven): JDK auto-select, set-aside, demo target — proven on order-service
+- [x] Gradle JVM support (wrapper/binary, XML parsing, set-aside, demo) — live proof needs a real machine
 - [ ] JavaScript: jest/vitest projects + TypeScript
-- [ ] Gradle support (incl. Kotlin Android)
+- [ ] Android end-to-end proof (needs Android SDK on the machine)
 - [ ] Severity per surviving bug (critical/major/cosmetic)
 
 ## Phase 6 — Deeper experience
