@@ -152,7 +152,9 @@ def test_github_call_wraps_request_exceptions(monkeypatch):
         github_pr.GitHub("x").call("GET", "/user")
 
 
-def test_clone_uses_token_header(tmp_path, temp_env, monkeypatch):
+def test_clone_uses_basic_auth_header(tmp_path, temp_env, monkeypatch):
+    import base64
+
     monkeypatch.setattr(projects, "WORKSPACE", tmp_path)
     monkeypatch.setenv("GITHUB_TOKEN", "secret")
     seen = {}
@@ -171,7 +173,53 @@ def test_clone_uses_token_header(tmp_path, temp_env, monkeypatch):
     p = projects._clone("o", "r", log=lambda m: None, refresh=True)
     assert p.root == tmp_path / "repos" / "o__r"
     assert seen["cmd"][0:2] == ["git", "-c"]
-    assert seen["cmd"][2] == "http.extraHeader=Authorization: Bearer secret"
+    scheme, _, payload = seen["cmd"][2].removeprefix("http.extraHeader=Authorization: ").partition(" ")
+    assert scheme == "Basic"  # Bearer is rejected for gh's OAuth tokens on git ops
+    assert base64.b64decode(payload).decode() == "x-access-token:secret"
+
+
+def test_clone_retries_anonymously_when_token_rejected(tmp_path, temp_env, monkeypatch):
+    monkeypatch.setattr(projects, "WORKSPACE", tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "stale")
+    calls = []
+
+    class Fail:
+        returncode = 128
+        stdout = ""
+        stderr = "fatal: Authentication failed for 'https://github.com/o/r.git/'"
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        if "-c" in cmd:
+            return Fail()
+        (tmp_path / "repos" / "o__r").mkdir(parents=True)
+        return R()
+
+    monkeypatch.setattr(projects.subprocess, "run", fake_run)
+    logs = []
+    p = projects._clone("o", "r", log=logs.append, refresh=True)
+    assert p.root == tmp_path / "repos" / "o__r"
+    assert len(calls) == 2 and "-c" not in calls[1]
+    assert any("Reconnect GitHub" in m for m in logs)
+
+
+def test_clone_auth_failure_on_private_suggests_reconnect(tmp_path, temp_env, monkeypatch):
+    monkeypatch.setattr(projects, "WORKSPACE", tmp_path)
+    monkeypatch.setenv("GITHUB_TOKEN", "stale")
+
+    class Fail:
+        returncode = 128
+        stdout = ""
+        stderr = "fatal: Authentication failed for 'https://github.com/o/r.git/'"
+
+    monkeypatch.setattr(projects.subprocess, "run", lambda *a, **k: Fail())
+    with pytest.raises(projects.ProjectError, match="Reconnect"):
+        projects._clone("o", "r", log=lambda m: None, refresh=True)
 
 
 def test_clone_without_token_has_no_auth_header(tmp_path, temp_env, monkeypatch):

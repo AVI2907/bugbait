@@ -8,6 +8,7 @@ A project can be:
 BugBait never edits the original project. Every trial runs on a temporary copy.
 """
 
+import base64
 import hashlib
 import os
 import re
@@ -176,6 +177,22 @@ def _github_token():
         return None
 
 
+def _git_clone(url, dest, token):
+    cmd = ["git", "clone", "--depth", "1", url + ".git", str(dest)]
+    if token:
+        # Basic auth works with every token kind (gh OAuth, classic + fine-grained PATs);
+        # Bearer fails for gh's OAuth tokens on git operations. A header keeps the token
+        # out of the URL and error output.
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        cmd = ["git", "-c", f"http.extraHeader=Authorization: Basic {basic}", *cmd[1:]]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                          env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})  # never hang asking for a password
+
+
+def _looks_like_auth_failure(stderr):
+    return "Authentication failed" in (stderr or "") or "401" in (stderr or "")
+
+
 def _clone(owner, repo, log, refresh):
     url = f"https://github.com/{owner}/{repo}"
     dest = WORKSPACE / "repos" / f"{owner}__{repo}"
@@ -186,17 +203,25 @@ def _clone(owner, repo, log, refresh):
             shutil.rmtree(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
         log(f"Downloading {owner}/{repo} from GitHub...")
-        cmd = ["git", "clone", "--depth", "1", url + ".git", str(dest)]
         token = _github_token()
-        if token:
-            # Lets private repos clone. A header keeps the token out of the URL and error output.
-            cmd = ["git", "-c", f"http.extraHeader=Authorization: Bearer {token}", *cmd[1:]]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
-                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})  # never hang asking for a password
+        r = _git_clone(url, dest, token)
+        if r.returncode != 0 and token and _looks_like_auth_failure(r.stderr):
+            # The token was rejected (expired? revoked?). Public repos don't need it,
+            # so retry anonymously before giving up.
+            log("GitHub rejected the stored token. Retrying without it…")
+            if dest.exists():
+                shutil.rmtree(dest)
+            r = _git_clone(url, dest, None)
+            if r.returncode == 0:
+                log("Downloaded without the token. Reconnect GitHub (Options → Settings) "
+                    "to test private repos again.")
         if r.returncode != 0:
             msg = r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "unknown error"
             if "not found" in msg.lower() or "could not read" in msg.lower():
                 msg = "Repository not found. Check the link, and that the repo is public."
+            elif _looks_like_auth_failure(r.stderr):
+                msg = ("GitHub rejected the login. Reconnect in the dashboard "
+                       "(Options → Settings → Disconnect, then Connect again).")
             raise ProjectError(f"Couldn't download {owner}/{repo}: {msg}")
     return Project(name=f"{owner}-{repo}", root=dest, source="github", url=url)
 
