@@ -35,6 +35,14 @@ OFFLINE_BUGS = {
         {"file": "src/main/java/calc/Calc.java", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
+    "gradlecalc": [
+        {"file": "src/main/java/calc/Calc.java", "old": "a + b", "new": "a - b",
+         "explanation": "basic arithmetic"},
+        {"file": "src/main/java/calc/Calc.java", "old": "age >= 18", "new": "age > 18",
+         "explanation": "boundary at 18"},
+        {"file": "src/main/java/calc/Calc.java", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
 }
 
 

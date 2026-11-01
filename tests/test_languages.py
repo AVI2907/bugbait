@@ -189,6 +189,51 @@ def test_env_sets_java_home(tmp_path):
     assert env["PATH"].startswith("/jdk21/bin")
 
 
+def test_gradle_baseline_set_aside_flow(tmp_path, monkeypatch):
+    import engine
+    import runner
+
+    (tmp_path / "build.gradle").write_text("// gradle\n")
+    (tmp_path / "gradlew").write_text("#!/bin/sh\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    p = Project(name="g", root=tmp_path, source="local", language=languages.JAVA,
+                build="gradle", gradle_cmd=["./gradlew"], gradle_tasks=["test"])
+    fail_xml = '<testsuite name="a.BadTest" tests="2" failures="1" errors="0" skipped="0"/>'
+    ok_xml = '<testsuite name="a.GoodTest" tests="3" failures="0" errors="0" skipped="0"/>'
+    calls = {"n": 0}
+
+    def fake_run(self, *a, **k):
+        calls["n"] += 1
+        d = self.path / "build/test-results/test"
+        d.mkdir(parents=True, exist_ok=True)
+        if calls["n"] == 1:
+            (d / "TEST-a.BadTest.xml").write_text(fail_xml)
+            (d / "TEST-a.GoodTest.xml").write_text(ok_xml)
+            return False, "FAILED"
+        (d / "TEST-a.GoodTest.xml").write_text(ok_xml)
+        return True, "OK"
+
+    monkeypatch.setattr(runner.Sandbox, "run_tests", fake_run)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 3
+    assert p.included_gradle_tests == ["GoodTest"]
+    assert events[-1][0] == "baseline" and events[-1][1]["passed"] is True
+
+
+def test_gradle_baseline_without_tests_explains(tmp_path, monkeypatch):
+    import engine
+    import runner
+
+    (tmp_path / "build.gradle").write_text("// gradle\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    p = Project(name="g", root=tmp_path, source="local", language=languages.JAVA,
+                build="gradle", gradle_cmd=["./gradlew"], gradle_tasks=["test"])
+    monkeypatch.setattr(runner.Sandbox, "run_tests", lambda self, *a, **k: (True, "OK"))
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) is None
+    assert "No Java test files" in events[-1][1]["output"]
+
+
 def test_java_baseline_set_aside_then_passes(tmp_path, monkeypatch):
     import engine
     import runner
