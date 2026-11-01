@@ -177,6 +177,15 @@
   .hist .t { color: var(--muted); font-size: 12px; }
   .hist .s { margin-left: auto; font-family: var(--mono); font-size: 13px; white-space: nowrap; }
 
+  /* guided steps */
+  .steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 18px; flex-wrap: wrap; }
+  .steps li { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px 6px 7px; }
+  .steps li b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--raise); font-size: 12px; font-weight: 600; }
+  .steps li.done { color: var(--text); }
+  .steps li.done b { background: var(--survived); color: #1A1408; }
+  .steps li.now { color: var(--text); border-color: var(--survived); }
+  .steps li .opt { font-size: 12px; color: var(--muted); }
+
   @media (max-width: 860px) {
     .cols { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 36px; }
@@ -227,6 +236,11 @@
     </div>
 
     <div class="setup" id="setup">
+      <ol class="steps" id="steps">
+        <li id="step1"><b>1</b>Connect GitHub <span class="opt">optional</span></li>
+        <li id="step2"><b>2</b>Choose project</li>
+        <li id="step3"><b>3</b>Run</li>
+      </ol>
       <label class="big" for="spec">Which project should BugBait test?</label>
       <div class="gh" id="ghBox">
         <div id="ghOff">
@@ -346,6 +360,17 @@ function log(msg) {
 }
 function showSetup(on) { $("setup").hidden = !on; $("projline").hidden = on || !current; }
 
+// Guided steps above the setup form.
+const stepState = { connected: false, loaded: false, ran: false };
+function refreshSteps() {
+  $("step1").className = stepState.connected ? "done" : (!stepState.loaded && !stepState.ran ? "now" : "");
+  $("step2").className = stepState.loaded ? "done" : (!stepState.ran ? "now" : "");
+  $("step3").className = stepState.ran ? "done" : (stepState.loaded ? "now" : "");
+  document.querySelectorAll("#steps li").forEach((li, i) => {
+    li.querySelector("b").textContent = li.className === "done" ? "✓" : String(i + 1);
+  });
+}
+
 // ---------- bug cells, list and detail ----------
 function view(b) {
   if (b.after === false && b.before === true) return ["closed", "Caught by new test"];
@@ -461,6 +486,7 @@ const handlers = {
                 headline("Muse Spark is planting bugs.", "The Saboteur looks for small, realistic mistakes that these tests are likely to miss."); },
   skipped() {},
   bugs(d) {
+    $("net").scrollIntoView({ behavior: "smooth", block: "nearest" });
     addBugs(d.bugs);
     status(state.tests ? `Running ${state.tests} tests against each planted bug` : "Running the tests against each planted bug");
     headline(`Testing ${d.bugs.length} planted bugs.`,
@@ -516,7 +542,7 @@ const handlers = {
     $("prHint").innerHTML = `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--text)">${esc(d.url)}</a>`;
     status("Pull request opened");
   },
-  done(d) { status(d.seconds ? `Finished in ${d.seconds}s` : "Finished"); },
+  done(d) { status(d.seconds ? `Finished in ${d.seconds}s` : "Finished"); stepState.ran = true; refreshSteps(); },
   failure(d) {
     showError(d.message);
     if ($("prBtn").textContent.startsWith("Opening")) { $("prBtn").textContent = "Open pull request"; $("prBtn").disabled = false; }
@@ -543,6 +569,8 @@ function loadProject(spec) {
   spec = (spec ?? $("spec").value).trim();
   if (!spec) { $("spec").focus(); return; }
   $("spec").value = spec;
+  localStorage.setItem("bugbait.spec", spec);
+  stepState.loaded = false; stepState.ran = false; refreshSteps();
   resetRun(); $("log").innerHTML = ""; $("files").hidden = true; current = null;
   headline(...INTRO);
   status("Loading project…");
@@ -551,6 +579,7 @@ function loadProject(spec) {
 
 function onProjectLoaded(p) {
   current = p;
+  stepState.loaded = true; refreshSteps();
   $("log").innerHTML = "";
   const where = p.url ? p.url.replace("https://", "") : p.root;
   status(`Loaded ${where}`);
@@ -598,6 +627,7 @@ async function ghStatus() {
     $("ghOff").hidden = s.connected;
     $("ghOn").hidden = !s.connected;
     $("ghCliHint").hidden = !s.gh_available;
+    stepState.connected = s.connected; refreshSteps();
     if (s.connected) { $("ghLogin").textContent = "@" + s.login; ghLoadRepos(); }
   } catch { /* unreachable: leave the box as-is */ }
 }
@@ -693,7 +723,7 @@ $("prBtn").onclick = () => {
   $("prRow").hidden = false; $("prBtn").disabled = true; $("prBtn").textContent = "Opening pull request…";
 };
 $("recent").onchange = updateReplay;
-$("change").onclick = () => { resetRun(); headline(...INTRO); status("Ready"); $("log").innerHTML = ""; showSetup(true); $("projline").hidden = true; $("spec").focus(); };
+$("change").onclick = () => { resetRun(); headline(...INTRO); status("Ready"); $("log").innerHTML = ""; showSetup(true); $("projline").hidden = true; stepState.loaded = false; stepState.ran = false; refreshSteps(); $("spec").focus(); };
 $("ghToggle").onclick = () => { $("ghForm").hidden = $("ghHelp").hidden = false; $("ghToggle").hidden = true; $("ghToken").focus(); };
 $("ghConnect").onclick = async () => {
   $("ghConnect").disabled = true;
@@ -719,6 +749,8 @@ $("paneClose").onclick = () => { $("overlay").hidden = true; };
 $("overlay").addEventListener("click", e => { if (e.target === $("overlay")) $("overlay").hidden = true; });
 document.addEventListener("keydown", e => { if (e.key === "Escape") { $("overlay").hidden = true; $("optMenu").hidden = true; } });
 if (localStorage.getItem("bugbait.bugs")) $("bugs").value = localStorage.getItem("bugbait.bugs");
+if (localStorage.getItem("bugbait.spec")) $("spec").value = localStorage.getItem("bugbait.spec");
+refreshSteps();
 fetch("/api/version").then(r => r.json()).then(v => $("ver").textContent = "BugBait " + v.version).catch(() => {});
 resetRun(); loadExamples(); loadRecent(); ghStatus();
 </script>
