@@ -90,3 +90,25 @@ def test_endpoint_failure_is_a_visible_error(client, darwin, monkeypatch):
 def test_version_endpoint(client):
     v = client.get("/api/version").get_json()["version"]
     assert isinstance(v, str) and len(v) >= 3
+
+
+def test_history_lists_runs_newest_first(client, tmp_path, monkeypatch):
+    import json as _json
+
+    res = tmp_path / "results"
+    (res / "aaa").mkdir(parents=True)
+    (res / "aaa" / "run-20260101-000000.json").write_text(_json.dumps({
+        "timestamp": "2026-01-01T00:00:00", "score_before": {"caught": 1, "total": 4},
+        "score_after": {"caught": 3, "total": 4},
+        "bugs": [{"fix": {"status": "fixed"}}, {"fix": {"status": "failed"}}]}))
+    (res / "aaa" / "run-20260201-000000.json").write_text(_json.dumps({
+        "timestamp": "2026-02-01T00:00:00", "score_before": {"caught": 2, "total": 2},
+        "score_after": None, "bugs": []}))
+    (res / "aaa" / "latest.json").write_text("{}")
+    (res / "aaa" / "run-broken.json").write_text("not json {")
+    monkeypatch.setattr(app, "ROOT", tmp_path)
+    hist = client.get("/api/history").get_json()
+    assert [h["timestamp"] for h in hist] == ["2026-02-01T00:00:00", "2026-01-01T00:00:00"]
+    assert hist[1]["tests_added"] == 1
+    assert hist[1]["after"] == {"caught": 3, "total": 4}
+    assert hist[0]["after"] == {"caught": 2, "total": 2}  # no fixer run: after == before

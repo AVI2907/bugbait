@@ -91,6 +91,34 @@ def version():
     return jsonify({"version": APP_VERSION})
 
 
+@app.get("/api/history")
+def history():
+    """Every past run's score, newest first (for the Score history panel)."""
+    out = []
+    results = ROOT / "results"
+    if results.is_dir():
+        for d in sorted(results.iterdir()):
+            if not d.is_dir():
+                continue
+            for f in sorted(d.glob("run-*.json")):
+                try:
+                    r = json.loads(f.read_text())
+                except ValueError:
+                    continue
+                before = r.get("score_before") or {}
+                after = r.get("score_after") or before
+                out.append({
+                    "name": d.name,
+                    "timestamp": r.get("timestamp"),
+                    "before": {"caught": before.get("caught", 0), "total": before.get("total", 0)},
+                    "after": {"caught": after.get("caught", 0), "total": after.get("total", 0)},
+                    "tests_added": sum(1 for b in r.get("bugs", [])
+                                       if (b.get("fix") or {}).get("status") == "fixed"),
+                })
+    out.sort(key=lambda r: r["timestamp"] or "", reverse=True)
+    return jsonify(out[:100])
+
+
 @app.get("/api/recent")
 def recent():
     """Projects that have a saved run (for Replay)."""
