@@ -22,6 +22,11 @@ OFFLINE_BUGS = {
         {"file": "calc.py", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
         {"file": "calc.py", "old": "percent > 100", "new": "percent >= 100", "explanation": "boundary at 100"},
     ],
+    "javascript": [
+        {"file": "calc.js", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "calc.js", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.js", "old": "percent > 100", "new": "percent >= 100", "explanation": "boundary at 100"},
+    ],
 }
 
 
@@ -181,7 +186,7 @@ def baseline(project, emit):
             emit("baseline", passed=False, tests=0, output=output[-3000:])
             return None
     if project.language.id == "javascript":
-        m = re.search(r"# pass (\d+)", output)
+        m = re.search(r"[#ℹ] pass (\d+)", output)
     else:
         m = re.search(r"(\d+) passed", output)
     count = int(m.group(1)) if m else 0
@@ -245,7 +250,7 @@ def _build_js_test_file(accepted):
     for i, bug, code in accepted:
         body = []
         for line in code.splitlines():
-            if re.match(r"^(import |export |(?:const|let|var)\s+\S+\s*=\s*require\()", line):
+            if re.match(r"^(import |export |(?:const|let|var)\s+.+=\s*require\()", line):
                 if line not in imports:
                     imports.append(line)
             else:

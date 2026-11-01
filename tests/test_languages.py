@@ -63,6 +63,19 @@ def test_javascript_project_discovers_js_files(tmp_path):
 
 
 @needs_node
+def test_javascript_baseline_counts_passes(tmp_path):
+    import engine
+
+    (tmp_path / "calc.js").write_text("export const add = (a, b) => a + b;\n")
+    (tmp_path / "calc.test.js").write_text(
+        "import test from 'node:test';\nimport assert from 'node:assert';\n"
+        "import { add } from './calc.js';\ntest('add', () => assert.equal(add(2, 3), 5));\n")
+    p = Project(name="js", root=tmp_path, source="local", language=languages.JAVASCRIPT)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_node
 def test_javascript_sandbox_run(tmp_path):
     from runner import Sandbox
 
