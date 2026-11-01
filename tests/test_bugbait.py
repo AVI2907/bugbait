@@ -175,6 +175,34 @@ def test_fixer_extracts_js_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_java_function(tmp_path):
+    (tmp_path / "Calc.java").write_text(
+        "package calc;\npublic class Calc {\n    public static int add(int a, int b) {\n"
+        "        return a + b;\n    }\n}\n")
+    p = Project(name="j", root=tmp_path, source="local", language=languages.JAVA)
+    assert engine.enclosing_function({"file": "Calc.java", "old": "a + b"}, p) == "Calc.add"
+
+
+def test_build_java_test_file_merges_methods():
+    bug1 = {"file": "Calc.java", "old": "a + b", "new": "a - b"}
+    code1 = ("package calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.*;\n"
+             "@Test\npublic void adds() {\n    assertEquals(5, Calc.add(2, 3));\n}\n")
+    out = engine.build_test_file([(1, bug1, code1)], languages.JAVA)
+    assert "package calc;" in out
+    assert out.count("import org.junit.jupiter.api.Test;") == 1
+    assert "public class BugbaitGeneratedTest" in out
+    assert "void bug1_adds()" in out
+
+
+def test_fixer_extracts_java_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```java\nimport org.junit.jupiter.api.Test;\n@Test\nvoid x() {}\n```", "Java")
+    assert reason is None and "@Test" in code
+    _, reason = _extract_code("```java\nclass X {}\n```", "Java")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -188,6 +216,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     monkeypatch.setattr(sab, "chat", fake_chat)
     sab.generate_bugs("c.js", "a", "t", 1, language="JavaScript")
     assert "valid JavaScript" in seen["system"] and "```js" in seen["user"]
+    sab.generate_bugs("C.java", "a", "t", 1, language="Java")
+    assert "valid Java" in seen["system"] and "```java" in seen["user"]
     sab.generate_bugs("c.py", "a", "t", 1)
     assert "valid Python" in seen["system"] and "```python" in seen["user"]
 

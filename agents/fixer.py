@@ -36,6 +36,19 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+JAVA_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a project and the existing tests did NOT catch it.
+Write a JUnit test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Match the existing tests' style: same JUnit version imports, same package line.
+- Start with the `package` line and needed `import` lines, then one or two self-contained
+  @Test methods (no class wrapper, no helper methods).
+- Reply with ONLY one ```java code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 
 def _check_path(project):
     d = project.test_dir()
@@ -48,8 +61,8 @@ def _extract_code(reply, language="Python"):
         return None, reply.strip().split(":", 1)[-1].strip()
     block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
-    marker = "def test_" if language == "Python" else "test("
-    if marker not in code and not (language != "Python" and "it(" in code):
+    markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",)}
+    if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
 
@@ -78,9 +91,11 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     Returns a dict: {"status": "fixed" | "skipped" | "failed", "test_code", "reason", "attempts"}
     """
     language = project.language.label
-    fence = "js" if project.language.id != "python" else "python"
+    fence = {"python": "python", "javascript": "js", "java": "java"}[project.language.id]
+    system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
+              "java": JAVA_SYSTEM_PROMPT}[project.language.id]
     messages = [
-        {"role": "system", "content": JS_SYSTEM_PROMPT if fence == "js" else SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": (
             f"### Original `{bug['file']}`\n```python\n{source}\n```\n\n"
             f"### Planted bug\nReplaced:\n```python\n{bug['old']}\n```\nwith:\n```python\n{bug['new']}\n```\n"

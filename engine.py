@@ -27,6 +27,14 @@ OFFLINE_BUGS = {
         {"file": "calc.js", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
         {"file": "calc.js", "old": "percent > 100", "new": "percent >= 100", "explanation": "boundary at 100"},
     ],
+    "javacalc": [
+        {"file": "src/main/java/calc/Calc.java", "old": "a + b", "new": "a - b",
+         "explanation": "basic arithmetic"},
+        {"file": "src/main/java/calc/Calc.java", "old": "age >= 18", "new": "age > 18",
+         "explanation": "boundary at 18"},
+        {"file": "src/main/java/calc/Calc.java", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
 }
 
 
@@ -88,10 +96,32 @@ def enclosing_js_function(bug, project):
     return func
 
 
+def enclosing_java_function(bug, project):
+    """Nearest method above a bug, plus its class (e.g. 'Calc.add')."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    func, at = None, line - 1
+    for i in range(line - 1, -1, -1):
+        m = re.search(r"(?:^|[\s;}])(\w+)\s*\([^;()]*\)\s*(?:throws\s+[\w.,\s]+)?\{", lines[i])
+        if m and m.group(1) not in ("if", "for", "while", "switch", "catch", "synchronized", "return", "new"):
+            func, at = m.group(1), i
+            break
+    if not func:
+        return None
+    for i in range(at - 1, -1, -1):
+        m = re.search(r"\bclass\s+(\w+)", lines[i])
+        if m:
+            return f"{m.group(1)}.{func}"
+    return func
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
-    if project.language.id != "python":
+    if project.language.id == "javascript":
         return enclosing_js_function(bug, project)
+    if project.language.id == "java":
+        return enclosing_java_function(bug, project)
     code = (project.root / bug["file"]).read_text()
     line = code[: code.index(bug["old"])].count("\n") + 1
     best = None
@@ -145,7 +175,7 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += " If this isn't a Python or JavaScript project, that's why — more languages are coming."
+            msg += " If this isn't a Python, JavaScript or Java project, that's why — more languages are coming."
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -161,7 +191,7 @@ def baseline(project, emit):
         passed, output = sb.run_tests(stop_early=False)
     if not passed:
         if project.language.id != "python":
-            if "no tests found" in output.lower() or "# tests 0" in output:
+            if "no tests found" in output.lower() or "# tests 0" in output or "No tests to run" in output:
                 emit("baseline", passed=False, tests=0, output=no_tests_message(project))
             else:
                 emit("baseline", passed=False, tests=0, output=output[-3000:])
@@ -187,9 +217,17 @@ def baseline(project, emit):
             return None
     if project.language.id == "javascript":
         m = re.search(r"[#ℹ] pass (\d+)", output)
+        count = int(m.group(1)) if m else 0
+    elif project.language.id == "java":
+        # Surefire prints per-class lines ("... -- in FooTest") plus bare totals lines; sum the totals.
+        count = 0
+        for line in output.splitlines():
+            m = re.search(r"Tests run: (\d+)", line)
+            if m and " -- in " not in line:
+                count += int(m.group(1))
     else:
         m = re.search(r"(\d+) passed", output)
-    count = int(m.group(1)) if m else 0
+        count = int(m.group(1)) if m else 0
     if count == 0:
         emit("baseline", passed=False, tests=0, output=no_tests_message(project))
         return None
@@ -229,6 +267,8 @@ def build_test_file(accepted, language):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     if language.id == "javascript":
         return _build_js_test_file(accepted)
+    if language.id == "java":
+        return _build_java_test_file(accepted)
     imports, bodies = [], []
     for i, bug, code in accepted:
         body = []
@@ -264,6 +304,45 @@ def _build_js_test_file(accepted):
     return head + "\n".join(imports) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
 
 
+def _java_methods(code):
+    """Extract (name, text) of each @Test method, matched by braces."""
+    out = []
+    for m in re.finditer(r"@Test\b[^{]*?\bvoid\s+(\w+)\s*\([^)]*\)\s*\{", code):
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), code[m.start():i + 1]))
+                    break
+    return out
+
+
+def _build_java_test_file(accepted):
+    package, imports, bodies = None, [], []
+    for i, bug, code in accepted:
+        for line in code.splitlines():
+            s = line.strip()
+            if s.startswith("package ") and package is None:
+                package = s
+            elif s.startswith("import ") and line not in imports:
+                imports.append(line)
+        for name, method in _java_methods(code):
+            renamed = method.replace(f"void {name}(", f"void bug{i}_{name}(", 1)
+            header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            indented = "\n".join(f"    {l}" if l.strip() else l for l in renamed.splitlines())
+            bodies.append(f"    {header}\n{indented}")
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    parts = [head.rstrip()]
+    if package:
+        parts.append(package)
+    parts.append("\n".join(imports))
+    parts.append("\npublic class BugbaitGeneratedTest {\n" + "\n\n".join(bodies) + "\n}\n")
+    return "\n".join(parts)
+
+
 def merge_imports(lines):
     """Combine 'from x import a' and 'from x import b' into 'from x import a, b'."""
     plain, from_names = [], {}
@@ -277,6 +356,17 @@ def merge_imports(lines):
         elif line not in plain:
             plain.append(line)
     return sorted(plain) + [f"from {mod} import {', '.join(names)}" for mod, names in from_names.items()]
+
+
+def _merged_tests_pass(project, test_file):
+    """Sanity check: the merged file must pass on clean code before it can score anything."""
+    try:
+        with Sandbox(project) as sb:
+            sb.add_file(generated_path(project), test_file)
+            passed, _ = sb.run_tests(generated_path(project), stop_early=False)
+        return passed
+    except Exception:
+        return False
 
 
 def save_report(report):
@@ -441,18 +531,22 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
             out_dir = ROOT / "generated_tests" / project.name
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / project.language.generated_name).write_text(test_file)
-
-            def on_after(bug, survived):
-                bug["survived_with_new_tests"] = survived
-                emit("bug_after", id=bug["id"], survived=survived)
-
-            after = run_bugs(project, bugs, workers, extra_tests=test_file, on_result=on_after)
-            caught_after = len(bugs) - sum(after.values())
-            report["score_after"] = {"caught": caught_after, "total": len(bugs)}
             report["generated_tests"] = test_file
-            emit("score_after", caught=caught_after, total=len(bugs), tests_added=len(accepted),
-                 saved_to=(out_dir / project.language.generated_name).relative_to(ROOT).as_posix(),
-                 test_path=generated_path(project))
+
+            if not _merged_tests_pass(project, test_file):
+                emit("setup", message="The merged test file didn't pass on its own, so it was saved "
+                                      "but not scored. Each test was still individually verified.")
+            else:
+                def on_after(bug, survived):
+                    bug["survived_with_new_tests"] = survived
+                    emit("bug_after", id=bug["id"], survived=survived)
+
+                after = run_bugs(project, bugs, workers, extra_tests=test_file, on_result=on_after)
+                caught_after = len(bugs) - sum(after.values())
+                report["score_after"] = {"caught": caught_after, "total": len(bugs)}
+                emit("score_after", caught=caught_after, total=len(bugs), tests_added=len(accepted),
+                     saved_to=(out_dir / project.language.generated_name).relative_to(ROOT).as_posix(),
+                     test_path=generated_path(project))
 
     report["seconds"] = round(time.time() - started, 1)
     path = save_report(report)

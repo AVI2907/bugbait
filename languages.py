@@ -68,26 +68,47 @@ class JavaScript(Language):
         return r.returncode == 0
 
 
+class Java(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.endswith(("Test.java", "Tests.java", "TestCase.java"))
+                or "src/test" in rel.as_posix())
+
+    def syntax_ok(self, code: str) -> bool:
+        # javac can't check one file without its dependencies, so every bug goes
+        # to the sandbox: builds that break count as caught (a known over-count).
+        return True
+
+
 PYTHON = Python(id="python", label="Python", extensions=(".py",),
                 generated_name="test_bugbait_generated.py", check_name="test_bugbait_check.py",
                 test_framework="pytest", test_hint="test_*.py, *_test.py and tests/ folders")
 JAVASCRIPT = JavaScript(id="javascript", label="JavaScript", extensions=(".js", ".mjs", ".cjs"),
                         generated_name="bugbait.generated.test.js", check_name="bugbait.check.test.js",
                         test_framework="node --test", test_hint="*.test.js, *.spec.js and __tests__/ folders")
+JAVA = Java(id="java", label="Java", extensions=(".java",),
+            generated_name="BugbaitGeneratedTest.java", check_name="BugbaitCheckTest.java",
+            test_framework="mvn test", test_hint="*Test.java files under src/test/")
 
-ALL = (PYTHON, JAVASCRIPT)
+ALL = (PYTHON, JAVASCRIPT, JAVA)
+
+# Extra extensions and build files that count toward a language for detection only
+DETECT_HINTS = {JAVASCRIPT: (".jsx", ".ts", ".tsx"), JAVA: (".kt", ".kts", ".scala")}
 
 
 def detect(root: Path) -> Language:
-    """Pick the language with the most code files (a package.json breaks ties toward JS)."""
+    """Pick the language with the most code files (build files break ties)."""
     counts = {lang: 0 for lang in ALL}
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.endswith(".egg-info")]
         for f in filenames:
             for lang in ALL:
-                if f.endswith(lang.extensions):
+                if f.endswith(lang.extensions) or f.endswith(DETECT_HINTS.get(lang, ())):
                     counts[lang] += 1
     if (root / "package.json").is_file():
         counts[JAVASCRIPT] += 1
+    if (root / "pom.xml").is_file():
+        counts[JAVA] += 1
+    if (root / "build.gradle").is_file() or (root / "build.gradle.kts").is_file():
+        counts[JAVA] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

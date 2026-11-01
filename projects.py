@@ -228,6 +228,21 @@ def _finish(project, log):
             raise ProjectError("This is a JavaScript project, but Node.js isn't installed. "
                                "Install Node.js 18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "java":
+        if not shutil.which("mvn"):
+            raise ProjectError("This is a Java project, but Maven isn't installed. "
+                               "Install Maven (e.g. brew install maven) and try again.")
+        if not (project.root / "pom.xml").is_file():
+            modules = sorted(p.parent.name for p in project.root.glob("*/pom.xml"))
+            if modules:
+                raise ProjectError(f"No pom.xml at the top level. Open one service folder directly: "
+                                   f"{', '.join(modules)}")
+            if ((project.root / "build.gradle").exists() or (project.root / "build.gradle.kts").exists()
+                    or (project.root / "gradlew").exists()):
+                raise ProjectError("This project builds with Gradle, which BugBait doesn't run yet "
+                                   "(Maven works today). Gradle support is coming.")
+            raise ProjectError("No pom.xml found. BugBait needs a Maven project to test Java code.")
+        return project  # Maven manages its own dependencies
     if project.source == "example":
         project.python = sys.executable
     else:

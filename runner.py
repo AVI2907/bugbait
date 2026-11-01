@@ -60,8 +60,15 @@ class Sandbox:
 
         stop_early: stop at the first failure (fast, used when checking a planted bug).
         """
+        if timeout == 300 and self.project.language.id == "java":
+            timeout = 900  # Maven builds (and first-run downloads) are slow
         if self.project.language.id == "javascript":
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "java":
+            cmd = ["mvn", "-B", "test"]
+            if test_paths:
+                names = ",".join(Path(p).stem for p in test_paths)
+                cmd += [f"-Dtest={names}", "-Dsurefire.failIfNoSpecifiedTests=false"]
         else:
             cmd = [self.project.python, "-m", "pytest", "-q", "--color=no", "-p", "no:cacheprovider",
                    "-p", "no:randomly", "-x" if stop_early else "-rfE", *self.project.pytest_args, *test_paths]

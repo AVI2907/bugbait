@@ -25,6 +25,78 @@ def test_detect_empty_defaults_to_python(tmp_path):
     assert languages.detect(tmp_path).id == "python"
 
 
+def test_detect_java_and_jvm_projects(tmp_path):
+    (tmp_path / "pom.xml").write_text("<project/>\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    assert languages.detect(tmp_path).id == "java"
+
+
+def test_detect_kotlin_counts_as_java(tmp_path):
+    (tmp_path / "App.kt").write_text("fun main() {}\n")
+    assert languages.detect(tmp_path).id == "java"
+
+
+def test_java_test_files():
+    java = languages.JAVA
+    assert java.is_test_file(Path("src/test/java/calc/CalcTest.java"))
+    assert java.is_test_file(Path("CalcTests.java"))
+    assert java.is_test_file(Path("src/test/java/calc/Helper.java"))
+    assert not java.is_test_file(Path("src/main/java/calc/Calc.java"))
+    assert java.generated_name == "BugbaitGeneratedTest.java"
+    assert java.check_name == "BugbaitCheckTest.java"
+
+
+def test_finish_java_requires_maven(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "pom.xml").write_text("<project/>\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    monkeypatch.setattr(projects.shutil, "which", lambda c: None)
+    with pytest.raises(projects.ProjectError, match="Maven"):
+        projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+
+
+def test_finish_java_guides_without_root_pom(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "svc-a" / "pom.xml").parent.mkdir(parents=True)
+    (tmp_path / "svc-a" / "pom.xml").write_text("<project/>\n")
+    (tmp_path / "svc-a" / "Main.java").write_text("class Main {}\n")
+    monkeypatch.setattr(projects.shutil, "which", lambda c: "/bin/mvn")
+    with pytest.raises(projects.ProjectError, match="svc-a"):
+        projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+
+
+def test_finish_gradle_project_says_coming_soon(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "build.gradle").write_text("// gradle\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    monkeypatch.setattr(projects.shutil, "which", lambda c: "/bin/mvn")
+    with pytest.raises(projects.ProjectError, match="Gradle"):
+        projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+
+
+def test_maven_command_construction(tmp_path, monkeypatch):
+    from runner import Sandbox
+
+    (tmp_path / "pom.xml").write_text("<project/>\n")
+    p = Project(name="j", root=tmp_path, source="local", language=languages.JAVA)
+    seen = []
+
+    class R:
+        returncode = 0
+        stdout = "Tests run: 1"
+        stderr = ""
+
+    monkeypatch.setattr("runner.subprocess.run", lambda cmd, **k: (seen.append(cmd), R())[1])
+    with Sandbox(p) as sb:
+        sb.run_tests()
+        sb.run_tests("src/test/java/calc/CalcTest.java")
+    assert seen[0][:3] == ["mvn", "-B", "test"]
+    assert "-Dtest=CalcTest" in seen[1]
+
+
 def test_python_test_files():
     py = languages.PYTHON
     assert py.is_test_file(Path("test_x.py"))

@@ -29,7 +29,7 @@ Reply with ONLY a JSON array, no prose:
 
 def generate_bugs(file_name, source, tests, count=5, language="Python"):
     """Ask Muse Spark for `count` candidate bugs for one source file."""
-    fence = {"Python": "python", "JavaScript": "js"}.get(language, "")
+    fence = {"Python": "python", "JavaScript": "js", "Java": "java"}.get(language, "")
     system = SYSTEM_PROMPT.replace("syntactically valid Python", f"syntactically valid {language}")
     user_prompt = (
         f"Plant {count} different bugs in `{file_name}`.\n\n"
