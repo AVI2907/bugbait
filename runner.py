@@ -19,6 +19,24 @@ def _ignore(directory, names):
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
 
+def parse_gradle_results(root):
+    """(total, failed, failed_classes, passed_classes) from JUnit XML under build/test-results."""
+    import xml.etree.ElementTree as ET
+    total, failed, failed_c, passed_c = 0, 0, [], []
+    for xml in sorted(Path(root).glob("**/build/test-results/*/TEST-*.xml")):
+        try:
+            r = ET.parse(xml).getroot()
+        except ET.ParseError:
+            continue
+        t = int(float(r.get("tests", 0)))
+        bad = int(float(r.get("failures", 0))) + int(float(r.get("errors", 0)))
+        total += t
+        failed += bad
+        name = (r.get("name") or xml.stem[5:]).split(".")[-1]
+        (failed_c if bad else passed_c).append(name)
+    return total, failed, sorted(set(failed_c)), sorted(set(passed_c))
+
+
 class Sandbox:
     """A throwaway copy of a project. Use with `with Sandbox(project) as sb:`."""
 
@@ -64,6 +82,16 @@ class Sandbox:
             timeout = 900  # Maven builds (and first-run downloads) are slow
         if self.project.language.id == "javascript":
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "java" and self.project.build == "gradle":
+            for d in self.path.glob("**/build/test-results"):
+                shutil.rmtree(d, ignore_errors=True)  # stale results would corrupt parsing
+            cmd = [*self.project.gradle_cmd, *self.project.gradle_tasks, "--console=plain"]
+            if test_paths:
+                for p in test_paths:
+                    cmd += ["--tests", Path(p).stem]
+            elif self.project.included_gradle_tests:
+                for name in sorted(set(self.project.included_gradle_tests)):
+                    cmd += ["--tests", name]
         elif self.project.language.id == "java":
             cmd = ["mvn", "-B", "test"]
             if test_paths:

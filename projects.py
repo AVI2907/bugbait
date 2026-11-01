@@ -44,7 +44,11 @@ class Project:
     url: str | None = None  # GitHub URL when source == "github"
     language: Language = PYTHON  # detected properly by _finish
     java_home: str | None = None  # selected JDK for Java projects (also set by _finish)
-    excluded_java_tests: list = field(default_factory=list)  # test classes that already fail
+    excluded_java_tests: list = field(default_factory=list)  # test classes that already fail (Maven)
+    build: str = "maven"  # Java build tool: "maven" | "gradle"
+    gradle_cmd: list = field(default_factory=list)  # e.g. ["./gradlew"] or ["gradle"]
+    gradle_tasks: list = field(default_factory=list)  # e.g. ["test"] or ["testDebugUnitTest"]
+    included_gradle_tests: list = field(default_factory=list)  # passing classes (baseline set-aside)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
     pytest_args: list = field(default_factory=list)  # e.g. --deselect for tests that already fail
@@ -285,6 +289,52 @@ def select_jdk(project, log):
                        f"Install it with: brew install openjdk@{required}")
 
 
+def _has_gradle(root):
+    return ((root / "build.gradle").exists() or (root / "build.gradle.kts").exists()
+            or (root / "gradlew").exists())
+
+
+def _needs_android_sdk(root):
+    for pat in ("build.gradle", "build.gradle.kts", "*/build.gradle", "*/build.gradle.kts"):
+        for f in root.glob(pat):
+            try:
+                text = f.read_text()
+            except OSError:
+                continue
+            if "com.android.application" in text or "com.android.library" in text:
+                return True
+    return False
+
+
+def _android_sdk_present(root):
+    if os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT"):
+        return True
+    local_props = root / "local.properties"
+    if local_props.is_file() and "sdk.dir" in local_props.read_text():
+        return True
+    return (Path.home() / "Library/Android/sdk").is_dir()
+
+
+def _finish_gradle(project, log):
+    if (project.root / "gradlew").exists():
+        project.gradle_cmd = ["./gradlew"]
+    elif shutil.which("gradle"):
+        project.gradle_cmd = ["gradle"]
+    else:
+        raise ProjectError("This project builds with Gradle, but neither its gradlew wrapper nor "
+                           "a gradle install was found. Install Gradle (e.g. brew install gradle).")
+    project.build = "gradle"
+    if _needs_android_sdk(project.root):
+        if not _android_sdk_present(project.root):
+            raise ProjectError("This is an Android project but no Android SDK was found. Install "
+                               "Android Studio (accept the SDK licenses) and set ANDROID_HOME, e.g. "
+                               "export ANDROID_HOME=~/Library/Android/sdk")
+        project.gradle_tasks = ["testDebugUnitTest"]
+    else:
+        project.gradle_tasks = ["test"]
+    return project
+
+
 def _finish(project, log):
     project.language = detect(project.root)
     if project.language.id == "javascript":
@@ -293,21 +343,21 @@ def _finish(project, log):
                                "Install Node.js 18+ and try again.")
         return project  # node --test needs no environment setup
     if project.language.id == "java":
-        if not shutil.which("mvn"):
-            raise ProjectError("This is a Java project, but Maven isn't installed. "
-                               "Install Maven (e.g. brew install maven) and try again.")
-        if not (project.root / "pom.xml").is_file():
-            modules = sorted(p.parent.name for p in project.root.glob("*/pom.xml"))
-            if modules:
-                raise ProjectError(f"No pom.xml at the top level. Open one service folder directly: "
-                                   f"{', '.join(modules)}")
-            if ((project.root / "build.gradle").exists() or (project.root / "build.gradle.kts").exists()
-                    or (project.root / "gradlew").exists()):
-                raise ProjectError("This project builds with Gradle, which BugBait doesn't run yet "
-                                   "(Maven works today). Gradle support is coming.")
-            raise ProjectError("No pom.xml found. BugBait needs a Maven project to test Java code.")
-        project.java_home = select_jdk(project, log)
-        return project  # Maven manages its own dependencies
+        if (project.root / "pom.xml").is_file():
+            if not shutil.which("mvn"):
+                raise ProjectError("This is a Java project, but Maven isn't installed. "
+                                   "Install Maven (e.g. brew install maven) and try again.")
+            project.build = "maven"
+            project.java_home = select_jdk(project, log)
+            return project  # Maven manages its own dependencies
+        modules = sorted(p.parent.name for p in project.root.glob("*/pom.xml"))
+        if modules:
+            raise ProjectError(f"No pom.xml at the top level. Open one service folder directly: "
+                               f"{', '.join(modules)}")
+        if _has_gradle(project.root):
+            return _finish_gradle(project, log)
+        raise ProjectError("No pom.xml found. BugBait needs a Maven project (or Gradle wrapper) "
+                           "to test Java code.")
     if project.source == "example":
         project.python = sys.executable
     else:

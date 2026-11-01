@@ -14,7 +14,7 @@ from pathlib import Path
 
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
-from runner import Sandbox
+from runner import Sandbox, parse_gradle_results
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -181,12 +181,41 @@ def no_tests_message(project):
             "They may need dependencies BugBait couldn't install, or they define no tests.")
 
 
+def gradle_baseline(project, emit):
+    """Baseline for Gradle projects, measured from JUnit XML (Gradle prints no counts)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_c, passed_c = parse_gradle_results(sb.path)
+    set_aside = 0
+    if not passed:
+        if not failed_c:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.included_gradle_tests = passed_c
+        set_aside = len(failed_c)
+        emit("setup", message=f"{set_aside} test classes already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _, _ = parse_gradle_results(sb.path)
+        if not passed or failed:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    if total == 0:
+        emit("baseline", passed=False, tests=0, output=no_tests_message(project))
+        return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
+
+
 def baseline(project, emit):
     """Run the project's own tests. Tests that already fail are set aside so they don't hide results.
 
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "java" and project.build == "gradle":
+        return gradle_baseline(project, emit)
     with Sandbox(project) as sb:
         passed, output = sb.run_tests(stop_early=False)
     if not passed:

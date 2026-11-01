@@ -67,14 +67,77 @@ def test_finish_java_guides_without_root_pom(tmp_path, monkeypatch):
         projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
 
 
-def test_finish_gradle_project_says_coming_soon(tmp_path, monkeypatch):
+def test_finish_gradle_project_uses_wrapper(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "build.gradle").write_text("// gradle\n")
+    (tmp_path / "gradlew").write_text("#!/bin/sh\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    monkeypatch.setattr(projects.shutil, "which", lambda c: None)
+    p = projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+    assert p.build == "gradle" and p.gradle_cmd == ["./gradlew"] and p.gradle_tasks == ["test"]
+
+
+def test_finish_gradle_without_runner_fails(tmp_path, monkeypatch):
     import projects
 
     (tmp_path / "build.gradle").write_text("// gradle\n")
     (tmp_path / "Main.java").write_text("class Main {}\n")
-    monkeypatch.setattr(projects.shutil, "which", lambda c: "/bin/mvn")
-    with pytest.raises(projects.ProjectError, match="Gradle"):
+    monkeypatch.setattr(projects.shutil, "which", lambda c: None)
+    with pytest.raises(projects.ProjectError, match="gradlew wrapper"):
         projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+
+
+def test_finish_android_requires_sdk(tmp_path, monkeypatch):
+    import projects
+
+    (tmp_path / "build.gradle").write_text("id 'com.android.application'\n")
+    (tmp_path / "gradlew").write_text("#!/bin/sh\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    monkeypatch.delenv("ANDROID_HOME", raising=False)
+    monkeypatch.delenv("ANDROID_SDK_ROOT", raising=False)
+    monkeypatch.setattr(projects.Path, "home", lambda: tmp_path)
+    with pytest.raises(projects.ProjectError, match="ANDROID_HOME"):
+        projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+
+
+def test_parse_gradle_results(tmp_path):
+    from runner import parse_gradle_results
+
+    d = tmp_path / "build/test-results/test"
+    d.mkdir(parents=True)
+    (d / "TEST-a.GoodTest.xml").write_text(
+        '<testsuite name="a.GoodTest" tests="3" failures="0" errors="0" skipped="0"/>')
+    (d / "TEST-a.BadTest.xml").write_text(
+        '<testsuite name="a.BadTest" tests="2" failures="1" errors="1" skipped="0"/>')
+    (d / "TEST-broken.xml").write_text("not xml {")
+    total, failed, failed_c, passed_c = parse_gradle_results(tmp_path)
+    assert (total, failed, failed_c, passed_c) == (5, 2, ["BadTest"], ["GoodTest"])
+
+
+def test_gradle_command_construction(tmp_path, monkeypatch):
+    from runner import Sandbox
+
+    (tmp_path / "build.gradle").write_text("// gradle\n")
+    p = Project(name="j", root=tmp_path, source="local", language=languages.JAVA,
+                build="gradle", gradle_cmd=["./gradlew"], gradle_tasks=["test"])
+    seen = []
+
+    class R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr("runner.subprocess.run", lambda cmd, **k: (seen.append(cmd), R())[1])
+    with Sandbox(p) as sb:
+        sb.run_tests()
+        sb.run_tests("src/test/java/calc/CalcTest.java")
+    assert seen[0][:3] == ["./gradlew", "test", "--console=plain"]
+    assert seen[1][-2:] == ["--tests", "CalcTest"]
+    p.included_gradle_tests = ["GoodTest"]
+    with Sandbox(p) as sb:
+        sb.run_tests()
+    assert seen[2][-2:] == ["--tests", "GoodTest"]
 
 
 def test_pom_java_version(tmp_path):
