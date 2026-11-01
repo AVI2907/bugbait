@@ -28,15 +28,37 @@ On [`inflection`](https://github.com/jpvanhal/inflection), a popular library wit
 3. **Fixer.** For each bug that got through, it writes a test. A test is accepted only if it **passes on the original code and fails on the buggy code**. Otherwise the Fixer sees the pytest output and tries again. It can also decide a change is harmless and doesn't deserve a test.
 4. **Results.** You get a before/after score, the weakest spots in your code (the functions where bugs slip through most), and a test file ready to add, or a pull request.
 
+## What bugs get planted
+
+The Saboteur plants small, realistic mistakes — the kind that survive code review. Every bug changes one
+small piece of code, keeps it syntactically valid, and gets a realism rating (5 = developers do this all
+the time, 1 = artificial). Bugs below your realism threshold are dropped before they ever run.
+
+| Kind | Python example | JavaScript example |
+|---|---|---|
+| off-by-one | `range(n)` → `range(n + 1)` | `i < len` → `i <= len` |
+| boundary | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` |
+| wrong operator | `a and b` → `a or b` | `a \|\| b` → `a && b` |
+| inverted condition | `if valid:` → `if not valid:` | `if (ok)` → `if (!ok)` |
+| wrong default | `def f(n=10)` → `def f(n=0)` | `n = 10` → `n = 0` |
+| swapped arguments | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` |
+| missing case | a guard clause removed | a guard clause removed |
+| wrong value | `timeout=30` → `timeout=300` | `timeout: 30` → `timeout: 300` |
+| error handling | `except ValueError` → `except Exception` | `throw new Error(…)` → `return null` |
+
+Each planted bug runs against your full test suite. **Caught** = at least one test failed (good).
+**Survived** = every test still passed (a gap — the Fixer writes a verified test for it). Your score is
+simply *caught ÷ planted*, before and after BugBait's tests.
+
 ## Use it on any project
 
-BugBait works on Python projects with pytest or unittest tests. Give it any of these:
+BugBait works on Python (**pytest**/unittest) and JavaScript (**node:test**) projects. Give it any of these:
 
 | | |
 |---|---|
 | A GitHub repo | `https://github.com/owner/repo` or `owner/repo` |
 | A folder on your computer | `~/code/my-project` |
-| A built-in example | `inflection`, `calculator` |
+| A built-in example | `inflection`, `calculator`, `javascript` |
 
 For downloaded and local projects, BugBait creates a separate Python environment, installs the project's dependencies, and sets aside any tests that already fail, so they don't hide the results.
 
@@ -107,6 +129,7 @@ Any OpenAI-compatible endpoint (for example Modal) works with `SABOTEUR_PROVIDER
 | File | What it does |
 |---|---|
 | `engine.py` | The pipeline: baseline → Saboteur → sandbox runs → Fixer → rescore → report |
+| `languages.py` | Language plugins (Python, JavaScript): file patterns, test detection, syntax checks |
 | `agents/saboteur.py`, `agents/fixer.py` | The two Muse Spark agents |
 | `projects.py` | Loading projects from GitHub, folders or examples, and per-project Python environments |
 | `runner.py` | Throwaway sandboxes that run pytest |

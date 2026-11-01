@@ -21,8 +21,10 @@ Working top-down. Checked = built.
 - [ ] Incremental runs (only attack files changed in the PR/branch)
 - [ ] Budget caps (max spend per run, graceful stop)
 
-## Phase 5 — More languages
-- [ ] JavaScript/TypeScript (jest/vitest) runner
+## Phase 5 — More languages (JavaScript done, Java next)
+- [x] JavaScript (node:test, zero dependencies) + demo target
+- [ ] JavaScript: jest/vitest projects + TypeScript
+- [ ] Java (Maven/Gradle) — next
 - [ ] Severity per surviving bug (critical/major/cosmetic)
 
 ## Phase 6 — Deeper experience
