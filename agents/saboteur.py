@@ -27,15 +27,17 @@ Reply with ONLY a JSON array, no prose:
 [{{"old": "...", "new": "...", "kind": "...", "realism": 4, "explanation": "why the current tests might miss this"}}]"""
 
 
-def generate_bugs(file_name, source, tests, count=5):
+def generate_bugs(file_name, source, tests, count=5, language="Python"):
     """Ask Muse Spark for `count` candidate bugs for one source file."""
+    fence = {"Python": "python", "JavaScript": "js"}.get(language, "")
+    system = SYSTEM_PROMPT.replace("syntactically valid Python", f"syntactically valid {language}")
     user_prompt = (
         f"Plant {count} different bugs in `{file_name}`.\n\n"
-        f"### {file_name}\n```python\n{source}\n```\n\n"
-        f"### Existing tests\n```python\n{tests}\n```"
+        f"### {file_name}\n```{fence}\n{source}\n```\n\n"
+        f"### Existing tests\n```{fence}\n{tests}\n```"
     )
     reply = chat(agent="saboteur", messages=[
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": user_prompt},
     ])
     bugs = extract_json(reply)

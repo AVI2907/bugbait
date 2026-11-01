@@ -29,6 +29,7 @@ class Language:
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
     test_framework: str   # what runs the tests, e.g. "pytest" (shown in messages)
+    test_hint: str        # where tests live, e.g. "test_*.py, *_test.py and tests/ folders"
 
     def is_test_file(self, rel: Path) -> bool:
         raise NotImplementedError
@@ -69,10 +70,10 @@ class JavaScript(Language):
 
 PYTHON = Python(id="python", label="Python", extensions=(".py",),
                 generated_name="test_bugbait_generated.py", check_name="test_bugbait_check.py",
-                test_framework="pytest")
+                test_framework="pytest", test_hint="test_*.py, *_test.py and tests/ folders")
 JAVASCRIPT = JavaScript(id="javascript", label="JavaScript", extensions=(".js", ".mjs", ".cjs"),
                         generated_name="bugbait.generated.test.js", check_name="bugbait.check.test.js",
-                        test_framework="node --test")
+                        test_framework="node --test", test_hint="*.test.js, *.spec.js and __tests__/ folders")
 
 ALL = (PYTHON, JAVASCRIPT)
 

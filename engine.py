@@ -16,8 +16,6 @@ from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
 from runner import Sandbox
 
-GENERATED_NAME = "test_bugbait_generated.py"
-
 OFFLINE_BUGS = {
     "calculator": [
         {"file": "calc.py", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
@@ -47,10 +45,8 @@ def validate(bug, project, min_realism=1):
         return "no change"
     if bug.get("realism", 5) < min_realism:
         return f"too artificial (realism {bug['realism']}/5)"
-    try:
-        ast.parse(code.replace(bug["old"], bug["new"], 1))
-    except SyntaxError:
-        return "mutation is not valid Python"
+    if not project.language.syntax_ok(code.replace(bug["old"], bug["new"], 1)):
+        return f"mutation is not valid {project.language.label}"
     return None
 
 
@@ -64,8 +60,33 @@ def bug_context(bug, project, radius=3):
     return {"line": line, "start": start, "lines": lines[start - 1:end]}
 
 
+def enclosing_js_function(bug, project):
+    """Nearest function above a bug, via simple patterns (function f, const f =, methods)."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    func, at = None, line - 1
+    for i in range(line - 1, -1, -1):
+        text = lines[i]
+        m = (re.search(r"\bfunction\s+(\w+)", text)
+             or re.search(r"\b(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:\([^)]*\)\s*=>|function\b)", text)
+             or re.search(r"^\s*(?:async\s+)?(\w+)\s*\([^)]*\)\s*\{", text))
+        if m and m.group(1) not in ("if", "for", "while", "switch", "catch"):
+            func, at = m.group(1), i
+            break
+    if not func:
+        return None
+    for i in range(at - 1, -1, -1):
+        m = re.search(r"\bclass\s+(\w+)", lines[i])
+        if m:
+            return f"{m.group(1)}.{func}"
+    return func
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id != "python":
+        return enclosing_js_function(bug, project)
     code = (project.root / bug["file"]).read_text()
     line = code[: code.index(bug["old"])].count("\n") + 1
     best = None
@@ -107,17 +128,21 @@ def risk_map(bugs):
 def generated_path(project):
     """Where the generated test file goes inside the project (next to the existing tests)."""
     d = project.test_dir()
-    return GENERATED_NAME if d in (".", "") else f"{d}/{GENERATED_NAME}"
+    name = project.language.generated_name
+    return name if d in (".", "") else f"{d}/{name}"
 
 
 def no_tests_message(project):
-    """Explain why pytest found nothing to run (the common non-Python-project case)."""
+    """Explain why the test runner found nothing to run."""
+    lang = project.language
     n = len(project.test_files())
     if n == 0:
-        return ("No Python test files were found in this project (BugBait looks for test_*.py, "
-                "*_test.py and tests/ folders). It measures test suites, so it needs pytest or "
-                "unittest tests to run — and right now it supports Python projects only.")
-    return (f"Found {n} test file(s), but pytest collected no tests from them. "
+        msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
+               f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
+        if not project.code_files():
+            msg += " If this isn't a Python or JavaScript project, that's why — more languages are coming."
+        return msg
+    return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
 
 
@@ -130,6 +155,12 @@ def baseline(project, emit):
     with Sandbox(project) as sb:
         passed, output = sb.run_tests(stop_early=False)
     if not passed:
+        if project.language.id != "python":
+            if "no tests found" in output.lower() or "# tests 0" in output:
+                emit("baseline", passed=False, tests=0, output=no_tests_message(project))
+            else:
+                emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
         failed = re.findall(r"^FAILED (\S+?)(?: - .*)?$", output, re.M)
         errored = re.findall(r"^ERROR (\S+?)(?: - .*)?$", output, re.M)
         if not failed and not errored:
@@ -149,7 +180,10 @@ def baseline(project, emit):
         if not passed:
             emit("baseline", passed=False, tests=0, output=output[-3000:])
             return None
-    m = re.search(r"(\d+) passed", output)
+    if project.language.id == "javascript":
+        m = re.search(r"# pass (\d+)", output)
+    else:
+        m = re.search(r"(\d+) passed", output)
     count = int(m.group(1)) if m else 0
     if count == 0:
         emit("baseline", passed=False, tests=0, output=no_tests_message(project))
@@ -186,8 +220,10 @@ def run_bugs(project, bugs, workers, extra_tests=None, on_result=None):
     return results
 
 
-def build_test_file(accepted):
-    """Merge verified tests into one file, renaming functions so they can't collide."""
+def build_test_file(accepted, language):
+    """Merge verified tests into one file, renaming tests so they can't collide."""
+    if language.id == "javascript":
+        return _build_js_test_file(accepted)
     imports, bodies = [], []
     for i, bug, code in accepted:
         body = []
@@ -202,6 +238,25 @@ def build_test_file(accepted):
         bodies.append(f"{header}\n{text}")
     head = '"""Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug."""\n\n'
     return head + "\n".join(merge_imports(imports)) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
+
+
+def _build_js_test_file(accepted):
+    imports, bodies = [], []
+    for i, bug, code in accepted:
+        body = []
+        for line in code.splitlines():
+            if re.match(r"^(import |export |(?:const|let|var)\s+\S+\s*=\s*require\()", line):
+                if line not in imports:
+                    imports.append(line)
+            else:
+                body.append(line)
+        text = "\n".join(body).strip()
+        text = re.sub(r"\b(test|it)\(\s*(['\"])",
+                      lambda m: f"{m.group(1)}({m.group(2)}bug{i}: ", text)
+        header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+        bodies.append(f"{header}\n{text}")
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    return head + "\n".join(imports) + "\n\n\n" + "\n\n\n".join(bodies) + "\n"
 
 
 def merge_imports(lines):
@@ -299,7 +354,8 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
             def study(rel):
                 emit("saboteur", file=rel)
                 return generate_bugs(rel, (project.root / rel).read_text(),
-                                     project.relevant_tests(rel), bugs_per_file)
+                                     project.relevant_tests(rel), bugs_per_file,
+                                     language=project.language.label)
 
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 candidates = [b for found in pool.map(study, chosen) for b in found]
@@ -345,6 +401,8 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "baseline_tests": test_count,
         "files": chosen,
+        "language": project.language.label,
+        "generated_name": project.language.generated_name,
         "test_path": generated_path(project),
         "bugs": bugs,
         "score_before": {"caught": caught_before, "total": len(bugs)},
@@ -374,10 +432,10 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
 
         accepted = [(b["id"], b, b["fix"]["test_code"]) for b in survivors if b["fix"]["status"] == "fixed"]
         if accepted:
-            test_file = build_test_file(accepted)
+            test_file = build_test_file(accepted, project.language)
             out_dir = ROOT / "generated_tests" / project.name
             out_dir.mkdir(parents=True, exist_ok=True)
-            (out_dir / GENERATED_NAME).write_text(test_file)
+            (out_dir / project.language.generated_name).write_text(test_file)
 
             def on_after(bug, survived):
                 bug["survived_with_new_tests"] = survived
@@ -388,7 +446,7 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
             report["score_after"] = {"caught": caught_after, "total": len(bugs)}
             report["generated_tests"] = test_file
             emit("score_after", caught=caught_after, total=len(bugs), tests_added=len(accepted),
-                 saved_to=(out_dir / GENERATED_NAME).relative_to(ROOT).as_posix(),
+                 saved_to=(out_dir / project.language.generated_name).relative_to(ROOT).as_posix(),
                  test_path=generated_path(project))
 
     report["seconds"] = round(time.time() - started, 1)

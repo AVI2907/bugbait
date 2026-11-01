@@ -3,7 +3,7 @@
 A generated test is only accepted if it
   1. PASSES on the original code (it's a correct test), and
   2. FAILS on the buggy code (it actually catches the bug).
-If either check fails, the Fixer gets the pytest output and tries again.
+If either check fails, the Fixer gets the test output and tries again.
 """
 
 import re
@@ -23,20 +23,33 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
-CHECK_FILE = "test_bugbait_check.py"
+JS_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a project and the existing tests did NOT catch it.
+Write a node:test test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Import from the module the same way the existing tests do (the test file sits next to them).
+- Use `const test = require('node:test')` and `const assert = require('node:assert')`
+  (or the equivalent ESM imports), and write one or two small test() blocks.
+- Reply with ONLY one ```js code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
 
 def _check_path(project):
     d = project.test_dir()
-    return CHECK_FILE if d in (".", "") else f"{d}/{CHECK_FILE}"
+    name = project.language.check_name
+    return name if d in (".", "") else f"{d}/{name}"
 
 
-def _extract_code(reply):
+def _extract_code(reply, language="Python"):
     if reply.strip().upper().startswith("NO_TEST"):
         return None, reply.strip().split(":", 1)[-1].strip()
-    block = re.search(r"```(?:python)?\s*(.*?)```", reply, re.DOTALL)
+    block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
-    if "def test_" not in code:
+    marker = "def test_" if language == "Python" else "test("
+    if marker not in code and not (language != "Python" and "it(" in code):
         return None, "model did not return a test function"
     return code + "\n", None
 
@@ -64,8 +77,10 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
 
     Returns a dict: {"status": "fixed" | "skipped" | "failed", "test_code", "reason", "attempts"}
     """
+    language = project.language.label
+    fence = "js" if project.language.id != "python" else "python"
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": JS_SYSTEM_PROMPT if fence == "js" else SYSTEM_PROMPT},
         {"role": "user", "content": (
             f"### Original `{bug['file']}`\n```python\n{source}\n```\n\n"
             f"### Planted bug\nReplaced:\n```python\n{bug['old']}\n```\nwith:\n```python\n{bug['new']}\n```\n"
@@ -78,7 +93,7 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
         if on_attempt:
             on_attempt(attempt)
         reply = chat(messages, agent="fixer", temperature=0.2)
-        code, skip_reason = _extract_code(reply)
+        code, skip_reason = _extract_code(reply, language)
         if code is None:
             if skip_reason and "did not return" not in skip_reason:
                 return {"status": "skipped", "test_code": None, "reason": skip_reason, "attempts": attempt}
@@ -89,7 +104,7 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
                 return {"status": "fixed", "test_code": code, "reason": None, "attempts": attempt}
         messages += [
             {"role": "assistant", "content": reply},
-            {"role": "user", "content": f"That didn't work. {problem}\nPlease fix the test and reply with one ```python block."},
+            {"role": "user", "content": f"That didn't work. {problem}\nPlease fix the test and reply with one ```{fence} block."},
         ]
     return {"status": "failed", "test_code": None, "reason": (problem or "")[:200], "attempts": max_attempts}
 

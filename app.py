@@ -363,8 +363,8 @@ def replay():
                     pause(0.15)
             yield sse("score_after", {**report["score_after"],
                                       "tests_added": sum(1 for b in survivors if b["fix"]["status"] == "fixed"),
-                                      "saved_to": f"generated_tests/{name}/{engine.GENERATED_NAME}",
-                                      "test_path": report.get("test_path") or engine.GENERATED_NAME})
+                                      "saved_to": f"generated_tests/{name}/{report.get('generated_name', 'test_bugbait_generated.py')}",
+                                      "test_path": report.get("test_path") or "test_bugbait_generated.py"})
         yield sse("done", {"report_path": "replay", "seconds": report.get("seconds")})
         yield sse("end", {})
 

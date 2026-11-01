@@ -9,6 +9,7 @@ calculator example's real pytest suite in throwaway copies (a few seconds).
 import pytest
 
 import engine
+import languages
 import llm
 from projects import Project, resolve
 
@@ -67,7 +68,7 @@ def test_build_test_file_renames_and_merges():
     bug2 = {"file": "calc.py", "old": "age >= 18", "new": "age > 18"}
     code1 = "from calc import add\n\n\ndef test_add():\n    assert add(1, 1) == 2\n"
     code2 = "from calc import is_adult\n\n\ndef test_adult():\n    assert is_adult(18)\n"
-    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)])
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], languages.PYTHON)
     assert "def test_bug1_add():" in out
     assert "def test_bug2_adult():" in out
     assert out.count("from calc import") == 1
@@ -102,7 +103,7 @@ def test_risk_map_ranks_worst_first():
 
 
 def test_generated_path_sits_next_to_tests(calc):
-    assert engine.generated_path(calc) == engine.GENERATED_NAME  # calculator tests live at root
+    assert engine.generated_path(calc) == "test_bugbait_generated.py"  # calculator tests live at root
 
 
 def test_project_info_counts_test_files(calc):
@@ -113,7 +114,20 @@ def test_no_tests_message_without_test_files(tmp_path):
     (tmp_path / "app.py").write_text("x = 1\n")
     p = Project(name="notests", root=tmp_path, source="local")
     msg = engine.no_tests_message(p)
-    assert "No Python test files" in msg and "Python projects only" in msg
+    assert "No Python test files" in msg and "pytest" in msg
+
+
+def test_no_tests_message_for_foreign_project(tmp_path):
+    (tmp_path / "Main.java").write_text("class Main {}\n")
+    p = Project(name="java", root=tmp_path, source="local")
+    assert "more languages are coming" in engine.no_tests_message(p)
+
+
+def test_no_tests_message_javascript(tmp_path):
+    (tmp_path / "calc.js").write_text("export const add = (a, b) => a + b;\n")
+    p = Project(name="js", root=tmp_path, source="local", language=languages.JAVASCRIPT)
+    msg = engine.no_tests_message(p)
+    assert "No JavaScript test files" in msg and "node --test" in msg
 
 
 def test_no_tests_message_with_uncollectable_tests(calc):
@@ -130,6 +144,52 @@ def test_baseline_without_tests_explains_itself(tmp_path):
     name, data = events[-1]
     assert name == "baseline" and data["passed"] is False
     assert "No Python test files" in data["output"]
+
+
+def test_build_js_test_file_renames_and_merges():
+    bug1 = {"file": "calc.js", "old": "a + b", "new": "a - b"}
+    code1 = ("const test = require('node:test');\nconst assert = require('node:assert');\n"
+             "const { add } = require('./calc.js');\ntest('adds', () => assert.equal(add(1, 1), 2));\n")
+    out = engine.build_test_file([(1, bug1, code1)], languages.JAVASCRIPT)
+    assert "test('bug1: adds'" in out
+    assert out.count("require('node:test')") == 1
+    assert out.startswith("// Tests written by the BugBait Fixer")
+
+
+def test_enclosing_js_function(tmp_path):
+    (tmp_path / "calc.js").write_text(
+        "export function isAdult(age) {\n  return age >= 18;\n}\n"
+        "class P {\n  discount(p) {\n    return p * 2;\n  }\n}\n")
+    p = Project(name="js", root=tmp_path, source="local", language=languages.JAVASCRIPT)
+    assert engine.enclosing_function({"file": "calc.js", "old": "age >= 18"}, p) == "isAdult"
+    assert engine.enclosing_function({"file": "calc.js", "old": "p * 2"}, p) == "P.discount"
+
+
+def test_fixer_extracts_js_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```js\nconst test = require('node:test');\ntest('x', () => {});\n```",
+                                 "JavaScript")
+    assert reason is None and "test('x'" in code
+    _, reason = _extract_code("```js\nconst x = 1;\n```", "JavaScript")
+    assert reason == "model did not return a test function"
+
+
+def test_saboteur_uses_language_fence(monkeypatch):
+    import agents.saboteur as sab
+
+    seen = {}
+
+    def fake_chat(messages, agent, **kw):
+        seen["system"] = messages[0]["content"]
+        seen["user"] = messages[1]["content"]
+        return '[{"old": "a", "new": "b"}]'
+
+    monkeypatch.setattr(sab, "chat", fake_chat)
+    sab.generate_bugs("c.js", "a", "t", 1, language="JavaScript")
+    assert "valid JavaScript" in seen["system"] and "```js" in seen["user"]
+    sab.generate_bugs("c.py", "a", "t", 1)
+    assert "valid Python" in seen["system"] and "```python" in seen["user"]
 
 
 # ---------- projects ----------
