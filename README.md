@@ -105,6 +105,9 @@ python main.py https://github.com/un33k/python-slugify --list-files
 python main.py ~/code/my-project --files app/models.py --bugs 8
 python main.py inflection --no-fix                 # measure only
 python main.py calculator --offline                # no API key needed
+python main.py . --staged --no-fix                 # only test staged files
+python main.py . --fail-under 70                   # exit 1 unless 70%+ caught
+python main.py --install-hook ~/code/my-project   # block weak commits
 ```
 
 ## Pull requests
@@ -112,6 +115,27 @@ python main.py calculator --offline                # no API key needed
 Add `GITHUB_TOKEN` to `.env` (a fine-grained token with **Contents** and **Pull requests** set to read & write). After a run, click **Open pull request** in the dashboard or VS Code, or run `python github_pr.py <project-name>`.
 
 If you can push to the repo, the PR goes there. If you can't, BugBait forks it and opens the PR **in your fork**, so maintainers of projects you don't own never get unexpected pull requests. The PR description lists every gap found, why it slipped through, and the weakest spots.
+
+## Gates and automation
+
+**Pre-commit hook.** `python main.py --install-hook <repo>` writes a hook that tests only your staged files and blocks the commit unless enough planted bugs are caught (default 70%). Delete the hook file to uninstall.
+
+**GitHub Action.** Score every pull request automatically. In your repo:
+
+```yaml
+permissions:
+  pull-requests: write   # lets BugBait comment on PRs
+steps:
+  - uses: actions/checkout@v4
+  - uses: avi2907/bugbait@v1
+    with:
+      fail-under: 70
+      api-key: ${{ secrets.META_API_KEY }}
+```
+
+The report lands as a PR comment (updated in place, not spammed) and in the job summary. `fail-under: 0` reports without gating.
+
+**Run comparison.** Options (top right) → Score history: tick any two runs of one project to see score movement, per-function trends, and bugs that changed result.
 
 ## Open-weight models
 
@@ -154,6 +178,8 @@ The landing page in `docs/` is GitHub Pages ready: repo Settings → Pages → D
 | `github_pr.py` | Opening pull requests |
 | `app.py`, `static/index.html` | Web dashboard |
 | `main.py` | Command line (and `--json` mode for VS Code) |
+| `precommit.py` | Pre-commit hook installer (`--staged` / `--fail-under` live in `main.py`) |
+| `pr_comment.py`, `action.yml` | PR comment renderer and reusable GitHub Action |
 | `vscode-extension/` | VS Code extension |
 | `tests/` | Unit tests for BugBait itself (`python -m pytest tests/`) |
 | `targets/` | Example projects. `inflection` is MIT-licensed and unmodified (see its `SOURCE.md`) |
