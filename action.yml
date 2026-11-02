@@ -1,0 +1,82 @@
+# BugBait as a reusable GitHub Action. Users add this to their repo:
+#
+#   - uses: avi2907/bugbait@v1
+#     with:
+#       fail-under: 70
+#       api-key: ${{ secrets.META_API_KEY }}
+#
+# and give the job `pull-requests: write` so it can comment on PRs.
+name: BugBait
+description: Plant bugs in your code and score how many your tests catch.
+inputs:
+  path:
+    description: Project to test (folder, example name, or owner/repo).
+    default: .
+  bugs:
+    description: Bugs to plant per source file.
+    default: '5'
+  fail-under:
+    description: Fail the job unless at least this percent of bugs are caught (0 = report only).
+    default: '0'
+  api-key:
+    description: Meta Model API key. Prefer secrets.META_API_KEY over pasting it here.
+    default: ''
+  post-comment:
+    description: Post the report as a PR comment ('false' disables it).
+    default: 'true'
+outputs:
+  score:
+    description: Percent of planted bugs the tests caught (empty if the run failed early).
+    value: ${{ steps.run.outputs.score }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - id: run
+      shell: bash
+      env:
+        META_API_KEY: ${{ inputs.api-key }}
+      run: |
+        set -uo pipefail
+        ACTION="${{ github.action_path }}"
+        pip install -q -r "$ACTION/requirements.txt"
+        python "$ACTION/main.py" "${{ inputs.path }}" \
+          --bugs "${{ inputs.bugs }}" --no-fix --fail-under "${{ inputs.fail-under }}" \
+          --json | tee bugbait-events.jsonl
+        CODE=${PIPESTATUS[0]}
+        REPORT=$(python3 -c "
+        import json
+        path = ''
+        for line in open('bugbait-events.jsonl'):
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get('event') == 'done':
+                path = event.get('report_path') or ''
+        print(path)
+        ")
+        if [ -n "$REPORT" ]; then
+          python3 "$ACTION/pr_comment.py" "$ACTION/$REPORT" > bugbait-comment.md
+          cat bugbait-comment.md >> "$GITHUB_STEP_SUMMARY"
+          SCORE=$(python3 -c "
+        import json
+        s = json.load(open('$ACTION/$REPORT'))['score_before']
+        print(s['caught'] * 100 // s['total'] if s['total'] else 0)
+        ")
+          echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+        fi
+        exit $CODE
+
+    - if: github.event_name == 'pull_request' && inputs.post-comment != 'false'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        [ -f bugbait-comment.md ] || exit 0
+        NUMBER=${{ github.event.pull_request.number }}
+        gh pr comment "$NUMBER" --edit-last --body-file bugbait-comment.md \
+          || gh pr comment "$NUMBER" --body-file bugbait-comment.md
