@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BugBait — Break your tests before prod does</title>
+<meta name="description" content="BugBait plants realistic bugs in your code, runs your test suite against each one, and writes verified tests for the gaps it finds. Python, JavaScript and Java.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap topin">
+    <a class="brand" href="#top" aria-label="BugBait home">
+      <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <path d="M13 2v9" stroke="#A29C8E" stroke-width="2" stroke-linecap="round"/>
+        <path d="M13 11c4 0 6 3 6 6.5S16 24 12.5 24 7 21.5 7 19" stroke="#E2B466" stroke-width="2.4" stroke-linecap="round"/>
+        <path d="M7 19l-2-2.5" stroke="#E2B466" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      BugBait
+    </a>
+    <nav aria-label="Page">
+      <a href="#how">How it works</a>
+      <a href="#bugs">The bugs</a>
+      <a href="#languages">Languages</a>
+      <a href="#start">Get started</a>
+    </nav>
+    <a class="btn ghost" href="https://github.com/AVI2907/bugbait">GitHub</a>
+  </div>
+</header>
+
+<main id="top">
+  <section class="wrap hero">
+    <p class="kicker">Mutation testing, minus the pain</p>
+    <h1>Break your tests <em>before</em> prod does.</h1>
+    <p class="lede">BugBait plants realistic bugs in your code, runs your test suite against each one,
+      and writes verified tests for every gap it finds. Your code is never touched — it all happens
+      on throwaway copies.</p>
+    <div class="cta">
+      <a class="btn primary" href="#start">Test your project</a>
+      <a class="btn" href="https://github.com/AVI2907/bugbait">Star on GitHub</a>
+    </div>
+    <figure class="term" aria-label="Example BugBait run">
+      <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tt">bugbait — calculator</span></figcaption>
+<pre><code><span class="dim">$ python3 main.py calculator --bugs 2</span>
+Baseline: 4 tests pass
+
+Bug  1 <span class="surv">SURVIVED</span>  age &gt;= 18  →  age &gt; 18   <span class="dim">[boundary, realism 5/5]</span>
+Bug  2 <span class="surv">SURVIVED</span>  or  →  and               <span class="dim">[wrong operator]</span>
+
+Score: 0/2 bugs caught (0%)
+
+Fixer is writing tests for 2 surviving bugs...
+
+  [+] verified test added  <span class="dim">boundary at 18</span>
+  [+] verified test added  <span class="dim">broken validation</span>
+
+Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></pre>
+    </figure>
+  </section>
+
+  <section class="wrap how" id="how">
+    <h2>How it works</h2>
+    <ol class="steps">
+      <li>
+        <h3><b>1</b>Saboteur plants bugs</h3>
+        <p>An AI agent studies your code and plants small, realistic mistakes — off-by-ones,
+          flipped operators, dropped guards. Each gets a realism rating; artificial ones are thrown out.</p>
+      </li>
+      <li>
+        <h3><b>2</b>Sandbox scores your tests</h3>
+        <p>Every bug runs against your full suite in its own throwaway copy. Caught means a test
+          failed; survived means a real gap. Score: caught ÷ planted.</p>
+      </li>
+      <li>
+        <h3><b>3</b>Fixer writes the missing tests</h3>
+        <p>A second agent writes a test per survivor — each verified to pass on your code and fail
+          on the bug. Add them to your project or open a pull request.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="wrap bugs" id="bugs">
+    <h2>What gets planted</h2>
+    <p class="sub">Nine bug kinds, each a one-line change that keeps the code valid — the kind of thing
+      that survives code review.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Python</th><th>JavaScript</th><th>Java</th></tr></thead>
+        <tbody>
+          <tr><td>off-by-one</td><td><code>range(n)</code> → <code>range(n + 1)</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td></tr>
+          <tr><td>boundary</td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td></tr>
+          <tr><td>wrong operator</td><td><code>and</code> → <code>or</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>&amp;&amp;</code> → <code>||</code></td></tr>
+          <tr><td>inverted condition</td><td><code>if valid:</code> → <code>if not valid:</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td></tr>
+          <tr><td>wrong default</td><td><code>n=10</code> → <code>n=0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td></tr>
+          <tr><td>swapped arguments</td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td></tr>
+          <tr><td>missing case</td><td colspan="3">a guard clause removed</td></tr>
+          <tr><td>wrong value</td><td><code>timeout=30</code> → <code>timeout=300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout = 30</code> → <code>timeout = 300</code></td></tr>
+          <tr><td>error handling</td><td><code>except ValueError</code> → <code>except Exception</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>catch (IOException)</code> → <code>catch (Exception)</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap langs" id="languages">
+    <h2>Languages</h2>
+    <ul class="langlist">
+      <li><strong>Python</strong><span>pytest / unittest</span></li>
+      <li><strong>JavaScript</strong><span>node --test</span></li>
+      <li><strong>Java</strong><span>Maven &amp; Gradle</span></li>
+      <li class="soon"><strong>TypeScript &amp; Kotlin</strong><span>on the roadmap</span></li>
+    </ul>
+    <p class="sub">Three ways to run it: the <strong>dashboard</strong> (point-and-click, pick repos after
+      connecting GitHub), the <strong>command line</strong>, or the <strong>VS Code extension</strong>
+      (underlines surviving bugs right in your editor).</p>
+  </section>
+
+  <section class="wrap start" id="start">
+    <h2>Get started in two minutes</h2>
+    <ol class="get">
+      <li><p>Clone it and install the four dependencies:</p>
+        <pre><code>git clone https://github.com/AVI2907/bugbait.git
+cd bugbait && pip install -r requirements.txt</code></pre></li>
+      <li><p>Add your model key to <code>.env</code>:</p>
+        <pre><code>META_API_KEY=your_key_here</code></pre></li>
+      <li><p>Run the demo — no key needed for this one:</p>
+        <pre><code>python3 main.py calculator --offline</code></pre></li>
+      <li><p>Then open the dashboard and test anything:</p>
+        <pre><code>python3 app.py   <span class="dim"># opens http://localhost:5050</span></code></pre></li>
+    </ol>
+    <p class="sub">Your code stays on your machine. Nothing is pushed anywhere unless you click “Open pull request”.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>BugBait — open source on <a href="https://github.com/AVI2907/bugbait">GitHub</a></span>
+    <span class="dim">Break your tests before prod does.</span>
+  </div>
+</footer>
+
+</body>
+</html>
