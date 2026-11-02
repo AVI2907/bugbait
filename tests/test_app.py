@@ -92,6 +92,15 @@ def test_version_endpoint(client):
     assert isinstance(v, str) and len(v) >= 3
 
 
+def test_server_config_defaults_and_env(monkeypatch):
+    monkeypatch.delenv("HOST", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
+    assert app.server_config() == ("127.0.0.1", 5050, True)
+    monkeypatch.setenv("HOST", "0.0.0.0")
+    monkeypatch.setenv("PORT", "8080")
+    assert app.server_config() == ("0.0.0.0", 8080, False)
+
+
 def test_history_lists_runs_newest_first(client, tmp_path, monkeypatch):
     import json as _json
 

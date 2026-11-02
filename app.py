@@ -7,6 +7,7 @@ Pick a project (a GitHub link, a folder on this computer, or an example), choose
 """
 
 import json
+import os
 import platform
 import queue
 import subprocess
@@ -371,18 +372,27 @@ def replay():
     return Response(gen(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
+def server_config():
+    """Host/port from the environment (HOST/PORT), defaulting to localhost:5050."""
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", "5050"))
+    return host, port, host in ("127.0.0.1", "localhost")
+
+
 if __name__ == "__main__":
     import logging
     import webbrowser
 
     import flask.cli
 
-    url = "http://localhost:5050"
+    _host, _port, _local = server_config()
+    url = f"http://{'localhost' if _local else _host}:{_port}"
     flask.cli.show_server_banner = lambda *args, **kwargs: None  # hide Flask's startup noise
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     print(f"\nBugBait dashboard is running at {url}")
-    print("Your browser should open by itself. If not, open that link.")
-    print("Keep this terminal open while you use the dashboard.")
-    print("When you are completely done, press Ctrl+C here to stop it.\n")
-    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    app.run(host="127.0.0.1", port=5050, debug=False, threaded=True)
+    if _local:
+        print("Your browser should open by itself. If not, open that link.")
+        print("Keep this terminal open while you use the dashboard.")
+        print("When you are completely done, press Ctrl+C here to stop it.\n")
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+    app.run(host=_host, port=_port, debug=False, threaded=True)
