@@ -379,6 +379,12 @@ def server_config():
     return host, port, host in ("127.0.0.1", "localhost")
 
 
+def display_url(host, port):
+    """The URL a human should open (0.0.0.0 means 'all interfaces', so show localhost)."""
+    shown = "localhost" if host in ("127.0.0.1", "localhost", "0.0.0.0") else host
+    return f"http://{shown}:{port}"
+
+
 if __name__ == "__main__":
     import logging
     import webbrowser
@@ -386,7 +392,7 @@ if __name__ == "__main__":
     import flask.cli
 
     _host, _port, _local = server_config()
-    url = f"http://{'localhost' if _local else _host}:{_port}"
+    url = display_url(_host, _port)
     flask.cli.show_server_banner = lambda *args, **kwargs: None  # hide Flask's startup noise
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     print(f"\nBugBait dashboard is running at {url}")

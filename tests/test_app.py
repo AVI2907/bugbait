@@ -101,6 +101,12 @@ def test_server_config_defaults_and_env(monkeypatch):
     assert app.server_config() == ("0.0.0.0", 8080, False)
 
 
+def test_display_url():
+    assert app.display_url("127.0.0.1", 5050) == "http://localhost:5050"
+    assert app.display_url("0.0.0.0", 5050) == "http://localhost:5050"
+    assert app.display_url("example.com", 80) == "http://example.com:80"
+
+
 def test_history_lists_runs_newest_first(client, tmp_path, monkeypatch):
     import json as _json
 
