@@ -130,6 +130,18 @@ Any OpenAI-compatible endpoint (for example Modal) works with `SABOTEUR_PROVIDER
 - Tests run on your machine, so only point BugBait at code you trust. Installing a project's dependencies can run that project's code.
 - The only writes to your project are the ones you choose: **Add tests to project** or **Open pull request**.
 
+## Host it
+
+The dashboard runs anywhere containers run. It reads `HOST`/`PORT` from the environment
+(defaults to localhost:5050 with the browser auto-open, unchanged for local use):
+
+```bash
+docker build -t bugbait .
+docker run -p 5050:5050 -e META_API_KEY=... [-e GITHUB_TOKEN=...] bugbait
+```
+
+The landing page in `docs/` is GitHub Pages ready: repo Settings → Pages → Deploy from branch → `main` / `docs`.
+
 ## Project layout
 
 | File | What it does |
