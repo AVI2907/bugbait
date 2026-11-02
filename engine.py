@@ -423,6 +423,52 @@ def _merged_tests_pass(project, test_file):
         return False
 
 
+def compare_reports(a, b):
+    """Diff two run reports: score movement, per-function trends, exact bug matches."""
+    def score(r, key):
+        s = r.get(key) or r.get("score_before") or {}
+        return {"caught": s.get("caught", 0), "total": s.get("total", 0)}
+
+    def riskmap(r):
+        return {(f["file"], f["function"]): f for f in (r.get("risk") or {}).get("functions", [])}
+
+    ra, rb = riskmap(a), riskmap(b)
+    functions = []
+    for key in sorted(set(ra) | set(rb)):
+        fa, fb = ra.get(key), rb.get(key)
+        sa = fa["survived"] / fa["planted"] if fa else None
+        sb = fb["survived"] / fb["planted"] if fb else None
+        if fa and fb:
+            trend = "improved" if sb < sa else ("regressed" if sb > sa else "same")
+        else:
+            trend = "new" if fb else "gone"
+        functions.append({
+            "file": key[0], "function": key[1], "trend": trend,
+            "a": {"planted": fa["planted"], "survived": fa["survived"]} if fa else None,
+            "b": {"planted": fb["planted"], "survived": fb["survived"]} if fb else None,
+        })
+
+    def bugmap(r):
+        return {(x["file"], x.get("old"), x.get("new")): x for x in r.get("bugs", [])}
+
+    def state(x):
+        if not x:
+            return "absent"
+        return "survived" if x.get("survived_original_tests") else "caught"
+
+    ba, bb = bugmap(a), bugmap(b)
+    bugs = [{"file": k[0], "old": k[1], "new": k[2],
+             "a": state(ba.get(k)), "b": state(bb.get(k))}
+            for k in sorted(set(ba) | set(bb), key=str)]
+    return {
+        "a": {"timestamp": a.get("timestamp"), "before": score(a, "score_before"),
+              "after": score(a, "score_after")},
+        "b": {"timestamp": b.get("timestamp"), "before": score(b, "score_before"),
+              "after": score(b, "score_after")},
+        "functions": functions, "bugs": bugs,
+    }
+
+
 def save_report(report):
     out_dir = ROOT / "results" / report["project"]["name"]
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import queue
+import re
 import subprocess
 import threading
 import time
@@ -110,6 +111,7 @@ def history():
                 after = r.get("score_after") or before
                 out.append({
                     "name": d.name,
+                    "file": f.name,
                     "timestamp": r.get("timestamp"),
                     "before": {"caught": before.get("caught", 0), "total": before.get("total", 0)},
                     "after": {"caught": after.get("caught", 0), "total": after.get("total", 0)},
@@ -118,6 +120,25 @@ def history():
                 })
     out.sort(key=lambda r: r["timestamp"] or "", reverse=True)
     return jsonify(out[:100])
+
+
+@app.get("/api/compare")
+def compare():
+    """Diff two runs of one project (?project=&a=run-....json&b=run-....json)."""
+    name = request.args.get("project", "")
+    files = [request.args.get("a", ""), request.args.get("b", "")]
+    if not name or any(not re.fullmatch(r"run-[\w-]+\.json", f) for f in files):
+        return jsonify({"error": "Pass ?project=<name>&a=<run-file>&b=<run-file>."}), 400
+    reports = []
+    for f in files:
+        path = ROOT / "results" / name / f
+        if not path.is_file():
+            return jsonify({"error": f"Run not found: {name}/{f}"}), 404
+        try:
+            reports.append(json.loads(path.read_text()))
+        except ValueError:
+            return jsonify({"error": f"Couldn't read {name}/{f}"}), 400
+    return jsonify(engine.compare_reports(*reports))
 
 
 @app.get("/api/recent")

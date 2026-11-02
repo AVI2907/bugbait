@@ -176,6 +176,17 @@
   .hist .n { font-family: var(--mono); font-size: 13px; }
   .hist .t { color: var(--muted); font-size: 12px; }
   .hist .s { margin-left: auto; font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .histwrap { display: flex; align-items: center; gap: 10px; }
+  .histwrap input[type=checkbox] { accent-color: var(--survived); width: 16px; height: 16px; flex: none; }
+  .histwrap .hist { flex: 1; }
+  #cmpBtn { margin: 4px 0 10px; }
+  .cmprow { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+  .cmprow .s { margin-left: auto; font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+  .pill { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+  .pill.improved { color: var(--closed); border-color: var(--closed); }
+  .pill.regressed { color: var(--survived); border-color: var(--survived); }
+  .pill.same, .pill.new, .pill.gone { color: var(--muted); }
+  .cmpsub { font-size: 14px; margin: 18px 0 4px; color: var(--muted); font-weight: 600; }
 
   /* guided steps */
   .steps { display: flex; gap: 8px; list-style: none; padding: 0; margin: 0 0 18px; flex-wrap: wrap; }
@@ -676,6 +687,8 @@ async function renderSettings() {
   };
 }
 
+let histCache = [];
+let cmpSel = [];
 async function renderHistory() {
   $("paneBody").innerHTML = `<p class="empty">Loading…</p>`;
   const h = await (await fetch("/api/history")).json().catch(() => []);
@@ -683,16 +696,54 @@ async function renderHistory() {
     $("paneBody").innerHTML = `<p class="empty">No runs yet. Run BugBait on a project and its scores will appear here.</p>`;
     return;
   }
-  $("paneBody").innerHTML = h.map((r, i) =>
-    `<button class="hist" data-i="${i}"><span><span class="n">${esc(r.name)}</span><br><span class="t">${esc((r.timestamp || "").replace("T", " "))}</span></span>`
+  histCache = h; cmpSel = [];
+  $("paneBody").innerHTML = `<p class="hint">Tick two runs of one project to compare them, or click a run to replay it.</p>`
+    + `<div id="cmpBtn" hidden><button class="btn" id="doCmp">Compare selected</button></div>`
+    + h.map((r, i) =>
+    `<div class="histwrap"><input type="checkbox" data-c="${i}" aria-label="Select run for comparison">`
+    + `<button class="hist" data-i="${i}"><span><span class="n">${esc(r.name)}</span><br><span class="t">${esc((r.timestamp || "").replace("T", " "))}</span></span>`
     + `<span class="s">${pct(r.before.caught, r.before.total)}% → ${pct(r.after.caught, r.after.total)}%`
-    + `${r.tests_added ? ` · +${r.tests_added} test${r.tests_added === 1 ? "" : "s"}` : ""}</span></button>`).join("");
+    + `${r.tests_added ? ` · +${r.tests_added} test${r.tests_added === 1 ? "" : "s"}` : ""}</span></button></div>`).join("");
   $("paneBody").querySelectorAll("[data-i]").forEach(b => b.onclick = () => {
     const name = h[+b.dataset.i].name;
     $("overlay").hidden = true;
     if ([...$("recent").options].some(o => o.value === name)) { $("recent").value = name; replay(); }
     else showError(`No saved latest run for '${name}' to replay.`);
   });
+  $("paneBody").querySelectorAll("[data-c]").forEach(c => c.onchange = () => {
+    const i = +c.dataset.c;
+    if (c.checked) {
+      cmpSel = [...cmpSel.filter(j => histCache[j].name === h[i].name), i].slice(-2);
+      $("paneBody").querySelectorAll("[data-c]").forEach(o => { o.checked = cmpSel.includes(+o.dataset.c); });
+    } else cmpSel = cmpSel.filter(j => j !== i);
+    $("cmpBtn").hidden = cmpSel.length !== 2;
+  });
+  $("doCmp").onclick = renderCompare;
+}
+
+async function renderCompare() {
+  const [a, b] = cmpSel.map(i => histCache[i]).sort((x, y) => (x.timestamp || "") < (y.timestamp || "") ? -1 : 1);
+  $("paneBody").innerHTML = `<p class="empty">Loading…</p>`;
+  const d = await (await fetch(`/api/compare?project=${encodeURIComponent(a.name)}&a=${a.file}&b=${b.file}`)).json().catch(() => null);
+  if (!d || d.error) {
+    $("paneBody").innerHTML = `<p class="empty">${esc(d?.error || "Couldn't compare those runs.")}</p>`
+      + `<button class="btn" id="cmpBack">Back</button>`;
+    $("cmpBack").onclick = renderHistory;
+    return;
+  }
+  const arrow = (x, y) => x === y ? "→" : (y > x ? "↗" : "↘");
+  const changed = d.bugs.filter(x => x.a !== "absent" && x.b !== "absent" && x.a !== x.b);
+  $("paneBody").innerHTML = `<button class="linkbtn" id="cmpBack">← All runs</button>`
+    + `<p><span class="n">${esc(a.name)}</span><br><span class="t">${esc((a.timestamp || "").replace("T", " "))} → ${esc((b.timestamp || "").replace("T", " "))}</span></p>`
+    + `<p>Score before fixes: <strong>${pct(d.a.before.caught, d.a.before.total)}% ${arrow(pct(d.a.before.caught, d.a.before.total), pct(d.b.before.caught, d.b.before.total))} ${pct(d.b.before.caught, d.b.before.total)}%</strong></p>`
+    + d.functions.map(f =>
+      `<div class="cmprow"><span><span class="n">${esc(f.function)}</span><br><span class="t">${esc(f.file)}</span></span>`
+      + `<span class="s">${f.a ? `${f.a.survived}/${f.a.planted} got through` : "—"} → ${f.b ? `${f.b.survived}/${f.b.planted} got through` : "—"}</span>`
+      + `<span class="pill ${f.trend}">${f.trend}</span></div>`).join("")
+    + (changed.length ? `<h3 class="cmpsub">Same bug, different result</h3>` + changed.map(x =>
+      `<div class="cmprow"><span class="t">${esc(x.file)}: ${esc((x.old || "").slice(0, 40))} → ${esc((x.new || "").slice(0, 40))}</span>`
+      + `<span class="pill ${x.b === "caught" ? "improved" : "regressed"}">${x.a} → ${x.b}</span></div>`).join("") : "");
+  $("cmpBack").onclick = renderHistory;
 }
 
 // ---------- replay ----------

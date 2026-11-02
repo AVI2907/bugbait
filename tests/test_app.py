@@ -87,6 +87,43 @@ def test_endpoint_failure_is_a_visible_error(client, darwin, monkeypatch):
     assert "Automation" in body and "paste the folder path" in body
 
 
+def _sample_report(ts, caught, total, funcs=(), bugs=()):
+    return {"timestamp": ts, "score_before": {"caught": caught, "total": total}, "score_after": None,
+            "risk": {"functions": [{"file": f[0], "function": f[1], "planted": f[2], "survived": f[3]}
+                                   for f in funcs]},
+            "bugs": [{"file": b[0], "old": b[1], "new": b[2], "survived_original_tests": b[3]}
+                     for b in bugs]}
+
+
+def test_compare_reports_trends_and_matches():
+    a = _sample_report("2026-01-01", 1, 2, funcs=[("c.py", "f", 2, 2), ("c.py", "g", 1, 0)],
+                       bugs=[("c.py", "x", "y", True)])
+    b = _sample_report("2026-02-01", 2, 2, funcs=[("c.py", "f", 2, 0), ("c.py", "h", 1, 1)],
+                       bugs=[("c.py", "x", "y", False)])
+    d = app.engine.compare_reports(a, b)
+    assert d["a"]["before"] == {"caught": 1, "total": 2}
+    trends = {(f["file"], f["function"]): f["trend"] for f in d["functions"]}
+    assert trends == {("c.py", "f"): "improved", ("c.py", "g"): "gone", ("c.py", "h"): "new"}
+    assert d["bugs"] == [{"file": "c.py", "old": "x", "new": "y", "a": "survived", "b": "caught"}]
+
+
+def test_compare_endpoint_and_validation(client, tmp_path, monkeypatch):
+    import json as _json
+
+    res = tmp_path / "results" / "calc"
+    res.mkdir(parents=True)
+    (res / "run-20260101-000000.json").write_text(_json.dumps(_sample_report("2026-01-01", 1, 1)))
+    (res / "run-20260201-000000.json").write_text(_json.dumps(_sample_report("2026-02-01", 2, 2)))
+    monkeypatch.setattr(app, "ROOT", tmp_path)
+    good = "/api/compare?project=calc&a=run-20260101-000000.json&b=run-20260201-000000.json"
+    r = client.get(good)
+    assert r.status_code == 200 and r.get_json()["b"]["before"] == {"caught": 2, "total": 2}
+    assert client.get("/api/compare?project=calc&a=../x.json&b=run-20260201-000000.json").status_code == 400
+    assert client.get("/api/compare?project=calc&a=run-20260101-000000.json&b=run-9.json").status_code == 404
+    hist = client.get("/api/history").get_json()
+    assert hist[0]["file"] == "run-20260201-000000.json"
+
+
 def test_version_endpoint(client):
     v = client.get("/api/version").get_json()["version"]
     assert isinstance(v, str) and len(v) >= 3
