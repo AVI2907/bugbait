@@ -7,6 +7,7 @@ the terminal (main.py), the web dashboard (app.py) and the VS Code extension (ma
 import ast
 import json
 import re
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -491,6 +492,35 @@ def project_info(project):
     repo = github_repo_for(info)
     info["github"] = f"{repo[0]}/{repo[1]}" if repo else None
     return info
+
+
+def staged_source_files(project):
+    """Source files with staged git changes. Returns (files, error); error is None on success."""
+    try:
+        top = subprocess.run(["git", "-C", str(project.root), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=15)
+        if top.returncode:
+            return [], "not a git repository (or git isn't installed)"
+        toplevel = Path(top.stdout.strip()).resolve()
+        diff = subprocess.run(["git", "-C", str(project.root), "diff", "--cached",
+                               "--name-only", "-z"],
+                              capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return [], "couldn't run git"
+    if diff.returncode:
+        return [], "couldn't read the staged changes"
+    staged = {p for p in diff.stdout.split("\0") if p}
+    available = {f["path"] for f in project.source_files()}
+    root = project.root.resolve()
+    out = []
+    for rel in sorted(staged):
+        try:
+            local = (toplevel / rel).relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if local in available:
+            out.append(local)
+    return out, None
 
 
 # ---------- the whole pipeline ----------

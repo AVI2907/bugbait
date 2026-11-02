@@ -10,6 +10,9 @@ Usage:
     python main.py inflection --no-fix                # only measure, don't run the Fixer agent
     python main.py calculator --offline               # built-in bugs, no API key needed
     python main.py inflection --json                  # machine-readable events (used by VS Code)
+    python main.py . --staged --no-fix                # only test files with staged git changes
+    python main.py . --fail-under 70                  # exit 1 unless 70%+ of bugs are caught
+    python main.py --install-hook ~/code/my-project   # block weak commits automatically
 
 For the web dashboard, run:  python app.py
 """
@@ -94,10 +97,17 @@ def json_emit(event, **data):
     print(json.dumps({"event": event, **data}, default=str), flush=True)
 
 
+def gate(report, threshold):
+    """Did the run catch enough bugs? Returns (passed, percent)."""
+    s = report["score_before"]
+    caught_pct = pct(s["caught"], s["total"])
+    return caught_pct >= threshold, caught_pct
+
+
 def main():
     parser = argparse.ArgumentParser(description="BugBait: test your tests.")
-    parser.add_argument("project", nargs="?", default="calculator",
-                        help="example name, folder path, or GitHub link (default: calculator)")
+    parser.add_argument("project", nargs="?", default=None,
+                        help="example name, folder path, or GitHub link (default: calculator, or . with --staged)")
     parser.add_argument("--target", help=argparse.SUPPRESS)  # old name for the project argument
     parser.add_argument("--files", nargs="*", help="source files to attack (paths relative to the project)")
     parser.add_argument("--list-files", action="store_true", help="list the files BugBait could attack, then exit")
@@ -109,9 +119,34 @@ def main():
     parser.add_argument("--offline", action="store_true", help="use built-in bugs, no API call")
     parser.add_argument("--refresh", action="store_true", help="download a GitHub repo again")
     parser.add_argument("--json", action="store_true", help="print one JSON event per line")
+    parser.add_argument("--staged", action="store_true", help="only test files with staged git changes")
+    parser.add_argument("--fail-under", type=int, default=None, metavar="0-100",
+                        help="exit 1 unless at least this percent of planted bugs are caught")
+    parser.add_argument("--install-hook", metavar="REPO",
+                        help="install a pre-commit hook in REPO that blocks weak commits, then exit")
     args = parser.parse_args()
     spec = args.target or args.project
     emit = json_emit if args.json else make_printer()
+
+    if args.install_hook:
+        from precommit import install_hook
+        try:
+            hook = install_hook(args.install_hook, args.fail_under or 70)
+        except ValueError as e:
+            emit("error", message=str(e))
+            sys.exit(1)
+        if args.json:
+            emit("hook_installed", hook=hook)
+        else:
+            print(f"Pre-commit hook installed at {hook}\n"
+                  f"Commits now need {args.fail_under or 70}%+ of planted bugs caught to go through.")
+        return
+    if args.fail_under is not None and not 0 <= args.fail_under <= 100:
+        parser.error("--fail-under must be between 0 and 100")
+    if args.staged and args.files:
+        parser.error("can't combine --staged with --files")
+    if spec is None:
+        spec = "." if args.staged else "calculator"
 
     if args.list_files:
         from projects import ProjectError, resolve
@@ -128,10 +163,37 @@ def main():
                 print(f"{f['lines']:>6} lines  {f['path']}")
         return
 
+    if args.staged:
+        from projects import ProjectError, resolve
+        try:
+            project = resolve(spec, log=lambda m: emit("setup", message=m), refresh=args.refresh)
+        except ProjectError as e:
+            emit("error", message=str(e))
+            sys.exit(1)
+        staged, err = engine.staged_source_files(project)
+        if err:
+            emit("error", message=f"--staged: {err}.")
+            sys.exit(1)
+        if not staged:
+            emit("setup", message="No staged source files to test — nothing to do.")
+            return
+        spec = project
+        args.files = staged
+
     report = engine.run(spec, emit, files=args.files, bugs_per_file=args.bugs, workers=args.workers,
                         fix=not args.no_fix, offline=args.offline, refresh=args.refresh,
                         min_realism=args.min_realism)
-    sys.exit(0 if report else 1)
+    if not report:
+        sys.exit(1)
+    if args.fail_under is not None:
+        ok, caught_pct = gate(report, args.fail_under)
+        if args.json:
+            emit("gate", passed=ok, threshold=args.fail_under,
+                 caught=report["score_before"]["caught"], total=report["score_before"]["total"])
+        else:
+            print(f"BugBait gate: {caught_pct}% caught (needs {args.fail_under}%) — "
+                  f"{'PASS' if ok else 'FAIL'}")
+        sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
