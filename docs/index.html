@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BugBait — Break your tests before prod does</title>
-<meta name="description" content="BugBait plants realistic bugs in your code, runs your test suite against each one, and writes verified tests for the gaps it finds. Python, JavaScript and Java.">
+<meta name="description" content="BugBait plants realistic bugs in your code, runs your test suite against each one, and writes verified tests for the gaps it finds. Python, JavaScript, TypeScript, Go and Java.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -89,17 +89,17 @@ Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></
       that survives code review.</p>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Kind</th><th>Python</th><th>JavaScript</th><th>Java</th></tr></thead>
+        <thead><tr><th>Kind</th><th>Python</th><th>JavaScript</th><th>TypeScript</th><th>Go</th><th>Java</th></tr></thead>
         <tbody>
-          <tr><td>off-by-one</td><td><code>range(n)</code> → <code>range(n + 1)</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td></tr>
-          <tr><td>boundary</td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td></tr>
-          <tr><td>wrong operator</td><td><code>and</code> → <code>or</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>&amp;&amp;</code> → <code>||</code></td></tr>
-          <tr><td>inverted condition</td><td><code>if valid:</code> → <code>if not valid:</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td></tr>
-          <tr><td>wrong default</td><td><code>n=10</code> → <code>n=0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td></tr>
-          <tr><td>swapped arguments</td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td></tr>
-          <tr><td>missing case</td><td colspan="3">a guard clause removed</td></tr>
-          <tr><td>wrong value</td><td><code>timeout=30</code> → <code>timeout=300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout = 30</code> → <code>timeout = 300</code></td></tr>
-          <tr><td>error handling</td><td><code>except ValueError</code> → <code>except Exception</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>catch (IOException)</code> → <code>catch (Exception)</code></td></tr>
+          <tr><td>off-by-one</td><td><code>range(n)</code> → <code>range(n + 1)</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td></tr>
+          <tr><td>boundary</td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td></tr>
+          <tr><td>wrong operator</td><td><code>and</code> → <code>or</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>&amp;&amp;</code> → <code>||</code></td><td><code>&amp;&amp;</code> → <code>||</code></td></tr>
+          <tr><td>inverted condition</td><td><code>if valid:</code> → <code>if not valid:</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td></tr>
+          <tr><td>wrong default</td><td><code>n=10</code> → <code>n=0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n := 10</code> → <code>n := 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td></tr>
+          <tr><td>swapped arguments</td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td></tr>
+          <tr><td>missing case</td><td colspan="5">a guard clause removed</td></tr>
+          <tr><td>wrong value</td><td><code>timeout=30</code> → <code>timeout=300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout := 30</code> → <code>timeout := 300</code></td><td><code>timeout = 30</code> → <code>timeout = 300</code></td></tr>
+          <tr><td>error handling</td><td><code>except ValueError</code> → <code>except Exception</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>if err != nil</code> check dropped</td><td><code>catch (IOException)</code> → <code>catch (Exception)</code></td></tr>
         </tbody>
       </table>
     </div>
@@ -110,8 +110,10 @@ Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></
     <ul class="langlist">
       <li><strong>Python</strong><span>pytest / unittest</span></li>
       <li><strong>JavaScript</strong><span>node --test</span></li>
+      <li><strong>TypeScript</strong><span>node --test, no build step</span></li>
+      <li><strong>Go</strong><span>go test</span></li>
       <li><strong>Java</strong><span>Maven &amp; Gradle</span></li>
-      <li class="soon"><strong>TypeScript &amp; Kotlin</strong><span>on the roadmap</span></li>
+      <li class="soon"><strong>Rust &amp; more</strong><span>on the roadmap</span></li>
     </ul>
     <p class="sub">Three ways to run it: the <strong>dashboard</strong> (point-and-click, pick repos after
       connecting GitHub), the <strong>command line</strong>, or the <strong>VS Code extension</strong>

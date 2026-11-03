@@ -34,17 +34,17 @@ The Saboteur plants small, realistic mistakes — the kind that survive code rev
 small piece of code, keeps it syntactically valid, and gets a realism rating (5 = developers do this all
 the time, 1 = artificial). Bugs below your realism threshold are dropped before they ever run.
 
-| Kind | Python example | JavaScript example | Java example |
-|---|---|---|---|
-| off-by-one | `range(n)` → `range(n + 1)` | `i < len` → `i <= len` | `i < n` → `i <= n` |
-| boundary | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` |
-| wrong operator | `a and b` → `a or b` | `a \|\| b` → `a && b` | `a && b` → `a \|\| b` |
-| inverted condition | `if valid:` → `if not valid:` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` |
-| wrong default | `def f(n=10)` → `def f(n=0)` | `n = 10` → `n = 0` | `int n = 10` → `int n = 0` |
-| swapped arguments | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` |
-| missing case | a guard clause removed | a guard clause removed | a guard clause removed |
-| wrong value | `timeout=30` → `timeout=300` | `timeout: 30` → `timeout: 300` | `timeout = 30` → `timeout = 300` |
-| error handling | `except ValueError` → `except Exception` | `throw new Error(…)` → `return null` | `catch (IOException e)` → `catch (Exception e)` |
+| Kind | Python | JavaScript | TypeScript | Go | Java |
+|---|---|---|---|---|---|
+| off-by-one | `range(n)` → `range(n + 1)` | `i < len` → `i <= len` | `i < len` → `i <= len` | `i < n` → `i <= n` | `i < n` → `i <= n` |
+| boundary | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` |
+| wrong operator | `a and b` → `a or b` | `a \|\| b` → `a && b` | `a \|\| b` → `a && b` | `a && b` → `a \|\| b` | `a && b` → `a \|\| b` |
+| inverted condition | `if valid:` → `if not valid:` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` |
+| wrong default | `def f(n=10)` → `def f(n=0)` | `n = 10` → `n = 0` | `n = 10` → `n = 0` | `n := 10` → `n := 0` | `int n = 10` → `int n = 0` |
+| swapped arguments | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` |
+| missing case | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed |
+| wrong value | `timeout=30` → `timeout=300` | `timeout: 30` → `timeout: 300` | `timeout: 30` → `timeout: 300` | `timeout := 30` → `timeout := 300` | `timeout = 30` → `timeout = 300` |
+| error handling | `except ValueError` → `except Exception` | `throw new Error(…)` → `return null` | `throw new Error(…)` → `return null` | `if err != nil` check dropped | `catch (IOException e)` → `catch (Exception e)` |
 
 Each planted bug runs against your full test suite. **Caught** = at least one test failed (good).
 **Survived** = every test still passed (a gap — the Fixer writes a verified test for it). Your score is
@@ -52,14 +52,17 @@ simply *caught ÷ planted*, before and after BugBait's tests.
 
 ## Use it on any project
 
-BugBait works on Python (**pytest**/unittest), JavaScript (**node:test**) and Java (**Maven**) projects.
-Give it any of these:
+BugBait works on Python (**pytest**/unittest), JavaScript and TypeScript (**node:test**), Go
+(**go test**) and Java (**Maven** & **Gradle**) projects. Give it any of these:
 
 | | |
 |---|---|
 | A GitHub repo | `https://github.com/owner/repo` or `owner/repo` |
 | A folder on your computer | `~/code/my-project` |
-| A built-in example | `inflection`, `calculator`, `javascript`, `javacalc` |
+| A built-in example | `inflection`, `calculator`, `javascript`, `typescript`, `javacalc`, `gradlecalc`, `gocalc` |
+
+TypeScript runs directly under Node.js 22.18+ (type stripping, no build step). Go needs a `go`
+install and a `go.mod` in the project.
 
 Java notes: BugBait picks the JDK your `pom.xml` asks for (and tells you how to install it if missing).
 Multi-module repos without a top-level `pom.xml` ask you to open one service folder. Gradle projects
@@ -171,7 +174,7 @@ The landing page in `docs/` is GitHub Pages ready: repo Settings → Pages → D
 | File | What it does |
 |---|---|
 | `engine.py` | The pipeline: baseline → Saboteur → sandbox runs → Fixer → rescore → report |
-| `languages.py` | Language plugins (Python, JavaScript): file patterns, test detection, syntax checks |
+| `languages.py` | Language plugins (Python, JavaScript, TypeScript, Go, Java): file patterns, test detection, syntax checks |
 | `agents/saboteur.py`, `agents/fixer.py` | The two Muse Spark agents |
 | `projects.py` | Loading projects from GitHub, folders or examples, and per-project Python environments |
 | `runner.py` | Throwaway sandboxes that run pytest |
