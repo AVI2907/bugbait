@@ -253,6 +253,36 @@ def test_fixer_extracts_go_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_ts_function(tmp_path):
+    (tmp_path / "calc.ts").write_text(
+        "export function isAdult(age: number): boolean {\n  return age >= 18;\n}\n"
+        "export function first<T>(items: T[]): T {\n  return items[0];\n}\n")
+    p = Project(name="ts", root=tmp_path, source="local", language=languages.TYPESCRIPT)
+    assert engine.enclosing_function({"file": "calc.ts", "old": "age >= 18"}, p) == "isAdult"
+    assert engine.enclosing_function({"file": "calc.ts", "old": "items[0]"}, p) == "first"
+
+
+def test_build_ts_test_file_keeps_types(tmp_path):
+    bug1 = {"file": "calc.ts", "old": "a + b", "new": "a - b"}
+    code1 = ("import test from 'node:test';\nimport assert from 'node:assert';\n"
+             "import { add } from './calc.ts';\n"
+             "test('adds', () => assert.equal(add(1, 1), 2));\n")
+    p = Project(name="ts", root=tmp_path, source="local", language=languages.TYPESCRIPT)
+    out = engine.build_test_file([(1, bug1, code1)], p)
+    assert "test('bug1: adds'" in out
+    assert "import { add } from './calc.ts';" in out
+
+
+def test_fixer_extracts_ts_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```ts\nimport test from 'node:test';\ntest('x', () => {});\n```",
+                                 "TypeScript")
+    assert reason is None and "test('x'" in code
+    _, reason = _extract_code("```ts\nconst x: number = 1;\n```", "TypeScript")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -272,6 +302,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid Python" in seen["system"] and "```python" in seen["user"]
     sab.generate_bugs("c.go", "a", "t", 1, language="Go")
     assert "valid Go" in seen["system"] and "```go" in seen["user"]
+    sab.generate_bugs("c.ts", "a", "t", 1, language="TypeScript")
+    assert "valid TypeScript" in seen["system"] and "```ts" in seen["user"]
 
 
 # ---------- projects ----------

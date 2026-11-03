@@ -35,6 +35,25 @@ def test_detect_empty_defaults_to_python(tmp_path):
     assert languages.detect(tmp_path).id == "python"
 
 
+def test_detect_typescript_project(tmp_path):
+    (tmp_path / "tsconfig.json").write_text("{}\n")
+    (tmp_path / "calc.ts").write_text("export const add = (a: number, b: number): number => a + b;\n")
+    (tmp_path / "calc.test.ts").write_text("import test from 'node:test';\n")
+    assert languages.detect(tmp_path).id == "typescript"
+
+
+def test_detect_ts_majority_beats_js(tmp_path):
+    (tmp_path / "a.ts").write_text("export const x: number = 1;\n")
+    (tmp_path / "b.ts").write_text("export const y: number = 2;\n")
+    (tmp_path / "c.js").write_text("export const z = 3;\n")
+    assert languages.detect(tmp_path).id == "typescript"
+
+
+def test_detect_tsx_counts_as_typescript(tmp_path):
+    (tmp_path / "App.tsx").write_text("export const App = () => null;\n")
+    assert languages.detect(tmp_path).id == "typescript"
+
+
 def test_detect_java_and_jvm_projects(tmp_path):
     (tmp_path / "pom.xml").write_text("<project/>\n")
     (tmp_path / "Main.java").write_text("class Main {}\n")
@@ -394,6 +413,77 @@ def test_go_readable_extracts_payloads():
               '{"Action":"fail","Package":"p"}\n')
     assert engine._go_readable(output) == "calc.go:3: boom"
     assert engine._go_readable("plain text") == "plain text"
+
+
+def test_typescript_test_files():
+    ts = languages.TYPESCRIPT
+    assert ts.is_test_file(Path("calc.test.ts"))
+    assert ts.is_test_file(Path("calc.spec.ts"))
+    assert ts.is_test_file(Path("__tests__/calc.ts"))
+    assert not ts.is_test_file(Path("calc.ts"))
+
+
+def test_typescript_d_ts_not_source():
+    ts = languages.TYPESCRIPT
+    assert not ts.is_source_file(Path("calc.d.ts"))
+    assert ts.is_source_file(Path("calc.ts"))
+
+
+def test_typescript_project_discovers_ts_files(tmp_path):
+    (tmp_path / "calc.ts").write_text(
+        "export const add = (a: number, b: number): number => a + b;\n"
+        "export const sub = (a: number, b: number): number => a - b;\n")
+    (tmp_path / "calc.d.ts").write_text("export declare const add: (a: number, b: number) => number;\n")
+    (tmp_path / "calc.test.ts").write_text("import test from 'node:test';\n")
+    p = Project(name="ts", root=tmp_path, source="local", language=languages.TYPESCRIPT)
+    assert [f["path"] for f in p.source_files()] == ["calc.ts"]
+    assert [t.as_posix() for t in p.test_files()] == ["calc.test.ts"]
+
+
+def test_node_strips_types_versions(tmp_path):
+    from projects import _node_strips_types
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    node = bindir / "node"
+    node.write_text("#!/bin/sh\n")
+    node.chmod(0o755)
+    cases = [("v20.0.0", False), ("v22.17.9", False), ("v22.18.0", True),
+             ("v23.5.0", False), ("v23.6.0", True), ("v24.1.0", True)]
+    for version, expected in cases:
+        node.write_text(f"#!/bin/sh\necho {version}\n")
+        assert _node_strips_types(str(node)) is expected, version
+
+
+@needs_node
+def test_typescript_baseline_counts_passes(tmp_path):
+    import engine
+
+    (tmp_path / "calc.ts").write_text("export const add = (a: number, b: number): number => a + b;\n")
+    (tmp_path / "calc.test.ts").write_text(
+        "import test from 'node:test';\nimport assert from 'node:assert';\n"
+        "import { add } from './calc.ts';\ntest('add', () => assert.equal(add(2, 3), 5));\n")
+    p = Project(name="ts", root=tmp_path, source="local", language=languages.TYPESCRIPT)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_node
+def test_typescript_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    (tmp_path / "calc.ts").write_text("export const add = (a: number, b: number): number => a + b;\n")
+    (tmp_path / "calc.test.ts").write_text(
+        "import test from 'node:test';\nimport assert from 'node:assert';\n"
+        "import { add } from './calc.ts';\ntest('add', () => assert.equal(add(2, 3), 5));\n")
+    p = Project(name="ts", root=tmp_path, source="local", language=languages.TYPESCRIPT)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("calc.ts", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
 
 
 @needs_go

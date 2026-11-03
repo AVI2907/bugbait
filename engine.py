@@ -50,6 +50,12 @@ OFFLINE_BUGS = {
         {"file": "calc.go", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
+    "typescript": [
+        {"file": "calc.ts", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "calc.ts", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.ts", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
 }
 
 
@@ -148,7 +154,7 @@ def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
     if project.language.id == "go":
         return enclosing_go_function(bug, project)
-    if project.language.id == "javascript":
+    if project.language.id in ("javascript", "typescript"):
         return enclosing_js_function(bug, project)
     if project.language.id == "java":
         return enclosing_java_function(bug, project)
@@ -205,7 +211,8 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += " If this isn't a Python, JavaScript, Go or Java project, that's why — more languages are coming."
+            msg += (" If this isn't a Python, JavaScript, TypeScript, Go or Java project, that's why "
+                    "— more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -296,7 +303,7 @@ def baseline(project, emit):
     with Sandbox(project) as sb:
         passed, output = sb.run_tests(stop_early=False)
     if not passed:
-        if project.language.id == "javascript":
+        if project.language.id in ("javascript", "typescript"):
             if "no tests found" in output.lower() or "# tests 0" in output or "No tests to run" in output:
                 emit("baseline", passed=False, tests=0, output=no_tests_message(project))
             else:
@@ -335,7 +342,7 @@ def baseline(project, emit):
             if not passed:
                 emit("baseline", passed=False, tests=0, output=output[-3000:])
                 return None
-    if project.language.id == "javascript":
+    if project.language.id in ("javascript", "typescript"):
         m = re.search(r"[#ℹ] pass (\d+)", output)
         count = int(m.group(1)) if m else 0
     elif project.language.id == "java":
@@ -443,7 +450,7 @@ def _build_go_test_file(accepted, project):
 def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     language = project.language
-    if language.id == "javascript":
+    if language.id in ("javascript", "typescript"):
         return _build_js_test_file(accepted)
     if language.id == "java":
         return _build_java_test_file(accepted)

@@ -79,6 +79,8 @@ class Project:
         for rel in self.code_files():
             if self.is_test_file(rel) or rel.name in NOT_SOURCE_FILES:
                 continue
+            if not self.language.is_source_file(rel):
+                continue
             if any(p in NOT_SOURCE_DIRS for p in rel.parts[:-1]):
                 continue
             path = self.root / rel
@@ -338,6 +340,19 @@ def _finish_gradle(project, log):
     return project
 
 
+def _node_strips_types(node):
+    """True if this Node runs .ts files without flags (22.18+, 23.6+, or 24+)."""
+    try:
+        found = subprocess.run([node, "--version"], capture_output=True, text=True, timeout=15)
+        m = re.match(r"v(\d+)\.(\d+)", found.stdout.strip())
+        if not m:
+            return False
+        major, minor = int(m.group(1)), int(m.group(2))
+        return major >= 24 or (major == 23 and minor >= 6) or (major == 22 and minor >= 18)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+
+
 def _writable_go_env():
     """GOCACHE/GOPATH overrides when Go's defaults aren't writable (sandboxes, read-only HOME)."""
     out = {}
@@ -367,10 +382,14 @@ def _writable_go_env():
 
 def _finish(project, log):
     project.language = detect(project.root)
-    if project.language.id == "javascript":
-        if not shutil.which("node"):
-            raise ProjectError("This is a JavaScript project, but Node.js isn't installed. "
+    if project.language.id in ("javascript", "typescript"):
+        node = shutil.which("node")
+        if not node:
+            raise ProjectError(f"This is a {project.language.label} project, but Node.js isn't installed. "
                                "Install Node.js 18+ and try again.")
+        if project.language.id == "typescript" and not _node_strips_types(node):
+            raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
+                               ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
     if project.language.id == "go":
         if not shutil.which("go"):

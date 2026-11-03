@@ -101,7 +101,7 @@ class Sandbox:
         """
         if timeout == 300 and self.project.language.id == "java":
             timeout = 900  # Maven builds (and first-run downloads) are slow
-        if self.project.language.id == "javascript":
+        if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
         elif self.project.language.id == "go":
             cmd = ["go", "test", "-count=1"]  # -count=1: never serve cached results for mutated code

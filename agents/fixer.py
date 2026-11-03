@@ -49,6 +49,20 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+TS_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a TypeScript project and the existing tests did NOT catch it.
+Write a node:test test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Import from the module the same way the existing tests do (the test file sits next to them).
+- Use `import test from 'node:test'` and `import assert from 'node:assert'`, with TypeScript types
+  where they help, and write one or two small test() blocks. Avoid enums and namespaces
+  (plain types, interfaces and functions only).
+- Reply with ONLY one ```ts code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 GO_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Go project and the existing tests did NOT catch it.
 Write a Go test that FAILS on the buggy code and PASSES on the original code.
 
@@ -75,7 +89,7 @@ def _extract_code(reply, language="Python"):
     block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
     markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",),
-               "Go": ("func Test",)}
+               "Go": ("func Test",), "TypeScript": ("test(", "it(")}
     if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
@@ -106,9 +120,10 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     """
     language = project.language.label
     fence = {"python": "python", "javascript": "js", "java": "java",
-             "go": "go"}[project.language.id]
+             "go": "go", "typescript": "ts"}[project.language.id]
     system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
-              "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT}[project.language.id]
+              "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT,
+              "typescript": TS_SYSTEM_PROMPT}[project.language.id]
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": (

@@ -23,8 +23,8 @@ SKIP_DIRS = {
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript"
-    label: str            # "Python" | "JavaScript"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -33,6 +33,10 @@ class Language:
 
     def is_test_file(self, rel: Path) -> bool:
         raise NotImplementedError
+
+    def is_source_file(self, rel: Path) -> bool:
+        """True if an extension-matching file is worth attacking. Rarely overridden."""
+        return True
 
     def syntax_ok(self, code: str) -> bool:
         """True if the code parses. Used to reject bugs that break syntax."""
@@ -79,6 +83,20 @@ class Java(Language):
         return True
 
 
+class TypeScript(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.endswith((".test.ts", ".spec.ts"))
+                or any(p in ("__tests__", "tests", "test", "testing") for p in rel.parts[:-1]))
+
+    def is_source_file(self, rel: Path) -> bool:
+        return not rel.name.endswith(".d.ts")  # declarations have no runtime code to attack
+
+    def syntax_ok(self, code: str) -> bool:
+        # Node strips types without checking them, so a standalone parse buys nothing:
+        # the sandbox run is the judge (syntax breaks count as caught, a known over-count).
+        return True
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -109,11 +127,14 @@ JAVA = Java(id="java", label="Java", extensions=(".java",),
 GO = Go(id="go", label="Go", extensions=(".go",),
         generated_name="bugbait_generated_test.go", check_name="bugbait_check_test.go",
         test_framework="go test", test_hint="*_test.go files")
+TYPESCRIPT = TypeScript(id="typescript", label="TypeScript", extensions=(".ts",),
+                        generated_name="bugbait.generated.test.ts", check_name="bugbait.check.test.ts",
+                        test_framework="node --test", test_hint="*.test.ts, *.spec.ts and __tests__/ folders")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT)
 
 # Extra extensions and build files that count toward a language for detection only
-DETECT_HINTS = {JAVASCRIPT: (".jsx", ".ts", ".tsx"), JAVA: (".kt", ".kts", ".scala")}
+DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",)}
 
 
 def detect(root: Path) -> Language:
@@ -133,5 +154,7 @@ def detect(root: Path) -> Language:
         counts[JAVA] += 1
     if (root / "go.mod").is_file():
         counts[GO] += 1
+    if (root / "tsconfig.json").is_file():
+        counts[TYPESCRIPT] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON
