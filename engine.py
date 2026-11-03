@@ -15,7 +15,7 @@ from pathlib import Path
 
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
-from runner import Sandbox, parse_go_results, parse_gradle_results
+from runner import Sandbox, parse_cargo_results, parse_go_results, parse_gradle_results
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -54,6 +54,12 @@ OFFLINE_BUGS = {
         {"file": "calc.ts", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
         {"file": "calc.ts", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
         {"file": "calc.ts", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "rustcalc": [
+        {"file": "src/lib.rs", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "src/lib.rs", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "src/lib.rs", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
 }
@@ -150,8 +156,31 @@ def enclosing_go_function(bug, project):
     return None
 
 
+def enclosing_rust_function(bug, project):
+    """Nearest fn above a bug; methods as 'Type.method' via the enclosing impl block."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    for i in range(line - 1, -1, -1):
+        m = re.search(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+(\w+)",
+                      lines[i])
+        if not m:
+            continue
+        name, indent = m.group(1), len(lines[i]) - len(lines[i].lstrip())
+        for j in range(i - 1, -1, -1):
+            if not lines[j].strip():
+                continue
+            im = re.search(r"^\s*impl(?:\s*<[^;{]*>)?\s+(?:[\w<>, ]+\s+for\s+)?(\w+)", lines[j])
+            if im and len(lines[j]) - len(lines[j].lstrip()) < indent:
+                return f"{im.group(1)}.{name}"
+        return name
+    return None
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id == "rust":
+        return enclosing_rust_function(bug, project)
     if project.language.id == "go":
         return enclosing_go_function(bug, project)
     if project.language.id in ("javascript", "typescript"):
@@ -211,8 +240,8 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += (" If this isn't a Python, JavaScript, TypeScript, Go or Java project, that's why "
-                    "— more languages are coming.")
+            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust or Java project, "
+                    "that's why — more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -258,6 +287,34 @@ def _go_readable(output, limit=3000):
     return ("".join(texts).strip() or output)[-limit:]
 
 
+def rust_baseline(project, emit):
+    """Baseline for Rust projects, summed over every `test result:` line cargo prints."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_t = parse_cargo_results(output)
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed_t or not passed:
+        if not failed_t:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.skipped_rust_tests = failed_t
+        set_aside = len(failed_t)
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _ = parse_cargo_results(output)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
+
+
 def go_baseline(project, emit):
     """Baseline for Go projects, measured from `go test -json` (plain output has no counts)."""
     with Sandbox(project) as sb:
@@ -296,6 +353,8 @@ def baseline(project, emit):
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "rust":
+        return rust_baseline(project, emit)
     if project.language.id == "go":
         return go_baseline(project, emit)
     if project.language.id == "java" and project.build == "gradle":
@@ -447,9 +506,47 @@ def _build_go_test_file(accepted, project):
     return f"{head}package {_go_package(project)}\n\n{import_block}" + "\n\n".join(bodies) + "\n"
 
 
+def _rust_test_fns(code):
+    """Extract (attrs, name, text) of each #[test] fn, matched by braces."""
+    out = []
+    pattern = (r"(?m)^((?:#\[[^\]]*\]\s*)+)(?:async\s+)?fn\s+(\w+)\s*(?:<[^>]*>)?\s*\([^)]*\)"
+               r"\s*(?:->\s*[^{]+)?\{")
+    for m in re.finditer(pattern, code):
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), m.group(2), code[m.start():i + 1]))
+                    break
+    return out
+
+
+def _build_rust_test_file(accepted):
+    imports, bodies = [], []
+    for i, bug, code in accepted:
+        for line in code.splitlines():
+            s = line.strip()
+            if not line[:1].isspace() and s.startswith(("use ", "pub use ")) and s.endswith(";"):
+                if s not in imports:
+                    imports.append(s)
+        for attrs, name, func in _rust_test_fns(code):
+            if "test" not in attrs:
+                continue
+            renamed = func.replace(f"fn {name}(", f"fn bug{i}_{name}(", 1)
+            header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            bodies.append(f"{header}\n{renamed}")
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    return head + ("\n".join(imports) + "\n\n" if imports else "") + "\n\n".join(bodies) + "\n"
+
+
 def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     language = project.language
+    if language.id == "rust":
+        return _build_rust_test_file(accepted)
     if language.id in ("javascript", "typescript"):
         return _build_js_test_file(accepted)
     if language.id == "java":

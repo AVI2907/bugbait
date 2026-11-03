@@ -17,14 +17,14 @@ from pathlib import Path
 SKIP_DIRS = {
     ".git", ".hg", ".svn", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox",
     "node_modules", "venv", ".venv", "env", ".env", "build", "dist", ".eggs", "site-packages",
-    ".idea", ".vscode", "htmlcov", ".ipynb_checkpoints",
+    ".idea", ".vscode", "htmlcov", ".ipynb_checkpoints", "target",
 }
 
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript" | "java" | "go" | "typescript"
-    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -97,6 +97,26 @@ class TypeScript(Language):
         return True
 
 
+class Rust(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return any(p in ("tests", "benches", "examples") for p in rel.parts[:-1])
+
+    def syntax_ok(self, code: str) -> bool:
+        rustfmt = shutil.which("rustfmt")
+        if not rustfmt:
+            return True  # can't check: let the sandbox run be the judge
+        with tempfile.NamedTemporaryFile("w", suffix=".rs", delete=True) as f:
+            f.write(code)
+            f.flush()
+            # --emit stdout only parses (never rewrites); try both modern editions.
+            for edition in ("2021", "2024"):
+                r = subprocess.run([rustfmt, "--edition", edition, "--emit", "stdout", f.name],
+                                   capture_output=True, timeout=30)
+                if r.returncode == 0:
+                    return True
+        return False
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -130,8 +150,11 @@ GO = Go(id="go", label="Go", extensions=(".go",),
 TYPESCRIPT = TypeScript(id="typescript", label="TypeScript", extensions=(".ts",),
                         generated_name="bugbait.generated.test.ts", check_name="bugbait.check.test.ts",
                         test_framework="node --test", test_hint="*.test.ts, *.spec.ts and __tests__/ folders")
+RUST = Rust(id="rust", label="Rust", extensions=(".rs",),
+            generated_name="bugbait_generated.rs", check_name="bugbait_check.rs",
+            test_framework="cargo test", test_hint="tests/ folders and #[test] functions")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST)
 
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",)}
@@ -156,5 +179,7 @@ def detect(root: Path) -> Language:
         counts[GO] += 1
     if (root / "tsconfig.json").is_file():
         counts[TYPESCRIPT] += 1
+    if (root / "Cargo.toml").is_file():
+        counts[RUST] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

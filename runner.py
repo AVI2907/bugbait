@@ -19,6 +19,26 @@ def _ignore(directory, names):
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
 
+def parse_cargo_results(output):
+    """(total, failed, failed_tests) from `cargo test` output (all test binaries summed)."""
+    import re
+    total, failed = 0, 0
+    for m in re.finditer(r"test result: \w+\. (\d+) passed; (\d+) failed", output):
+        total += int(m.group(1)) + int(m.group(2))
+        failed += int(m.group(2))
+    names, in_failures = [], False
+    for line in output.splitlines():
+        if line == "failures:":
+            in_failures = True
+            continue
+        if in_failures:
+            if line.startswith("    ") and line.strip():
+                names.append(line.strip())
+            elif not line.startswith(" "):
+                in_failures = False
+    return total, failed, sorted(set(names))
+
+
 def parse_go_results(output):
     """(total, failed, failed_tests, passed_tests) from `go test -json` output (top-level tests)."""
     import json
@@ -99,10 +119,22 @@ class Sandbox:
 
         stop_early: stop at the first failure (fast, used when checking a planted bug).
         """
-        if timeout == 300 and self.project.language.id == "java":
-            timeout = 900  # Maven builds (and first-run downloads) are slow
+        if timeout == 300:
+            if self.project.language.id == "java":
+                timeout = 900  # Maven builds (and first-run downloads) are slow
+            elif self.project.language.id == "rust":
+                timeout = 600  # first-time compiles are slow
         if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "rust":
+            # libtest has no stable fail-fast, so stop_early changes nothing here.
+            cmd = ["cargo", "test"]
+            if test_paths:
+                cmd += ["--test", Path(test_paths[0]).stem]
+            elif self.project.skipped_rust_tests:
+                cmd += ["--", "--exact"]
+                for name in sorted(set(self.project.skipped_rust_tests)):
+                    cmd += ["--skip", name]
         elif self.project.language.id == "go":
             cmd = ["go", "test", "-count=1"]  # -count=1: never serve cached results for mutated code
             if test_paths:

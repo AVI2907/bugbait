@@ -10,6 +10,17 @@ from projects import Project, resolve
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 needs_go = pytest.mark.skipif(shutil.which("go") is None, reason="go not installed")
+needs_cargo = pytest.mark.skipif(shutil.which("cargo") is None, reason="cargo not installed")
+needs_rustfmt = pytest.mark.skipif(shutil.which("rustfmt") is None, reason="rustfmt not installed")
+
+
+def write_rust_crate(path, extra_test=""):
+    (path / "Cargo.toml").write_text('[package]\nname = "rsproj"\nversion = "0.1.0"\nedition = "2021"\n')
+    (path / "src").mkdir(exist_ok=True)
+    (path / "src" / "lib.rs").write_text(
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n"
+        "#[cfg(test)]\nmod tests {\n    use super::*;\n\n"
+        "    #[test]\n    fn adds() {\n        assert_eq!(add(1, 2), 3);\n    }\n" + extra_test + "}\n")
 
 
 def write_go_module(path, extra_test=""):
@@ -33,6 +44,12 @@ def test_detect_javascript_project(tmp_path):
 
 def test_detect_empty_defaults_to_python(tmp_path):
     assert languages.detect(tmp_path).id == "python"
+
+
+def test_detect_rust_project(tmp_path):
+    (tmp_path / "Cargo.toml").write_text('[package]\nname = "x"\n')
+    (tmp_path / "lib.rs").write_text("pub fn f() {}\n")
+    assert languages.detect(tmp_path).id == "rust"
 
 
 def test_detect_typescript_project(tmp_path):
@@ -550,5 +567,93 @@ def test_go_fixer_verify(tmp_path):
             'func TestBugbaitCheck(t *testing.T) {\n\tif Add(1, 1) != 2 {\n\t\tt.Fail()\n\t}\n}\n')
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("Add(1, 1) != 2", "Add(0, 0) != 0")  # 0 passes under both + and -
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def test_rust_test_files():
+    rust = languages.RUST
+    assert rust.is_test_file(Path("tests/api.rs"))
+    assert rust.is_test_file(Path("benches/speed.rs"))
+    assert not rust.is_test_file(Path("src/lib.rs"))
+
+
+def test_parse_cargo_results():
+    from runner import parse_cargo_results
+
+    output = (
+        "running 3 tests\ntest tests::adds ... ok\ntest tests::broken ... FAILED\n"
+        "failures:\n    tests::broken\n\n"
+        "test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out\n"
+        "   Doc-tests rsproj\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n")
+    assert parse_cargo_results(output) == (4, 1, ["tests::broken"])
+    assert parse_cargo_results("error: could not compile\n") == (0, 0, [])
+
+
+@needs_rustfmt
+def test_rust_syntax_check():
+    assert languages.RUST.syntax_ok("pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
+    assert not languages.RUST.syntax_ok("pub fn add( {\n")
+
+
+def test_rust_project_discovers_rs_files(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "api.rs").write_text("#[test]\nfn x() {}\n")
+    p = Project(name="r", root=tmp_path, source="local", language=languages.RUST)
+    assert [f["path"] for f in p.source_files()] == ["src/lib.rs"]
+    assert [t.as_posix() for t in p.test_files()] == ["tests/api.rs"]
+    assert p.test_dir() == "tests"
+
+
+@needs_cargo
+def test_rust_baseline_counts_passes(tmp_path):
+    import engine
+
+    write_rust_crate(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    assert p.language.id == "rust"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_cargo
+def test_rust_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    write_rust_crate(tmp_path, "\n    #[test]\n    fn broken() {\n        panic!(\"boom\");\n    }\n")
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.skipped_rust_tests == ["tests::broken"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_cargo
+def test_rust_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    write_rust_crate(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("src/lib.rs", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_cargo
+def test_rust_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    write_rust_crate(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    bug = {"file": "src/lib.rs", "old": "a + b", "new": "a - b"}
+    good = ('use rsproj::add;\n\n#[test]\nfn checks_add() {\n    assert_eq!(add(1, 1), 2);\n}\n')
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("add(1, 1), 2", "add(0, 0), 0")  # 0 passes under both + and -
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem

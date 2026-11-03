@@ -283,6 +283,45 @@ def test_fixer_extracts_ts_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_rust_function(tmp_path):
+    (tmp_path / "lib.rs").write_text(
+        "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n"
+        "pub struct Calc;\nimpl Calc {\n"
+        "    pub fn double(&self, n: i32) -> i32 {\n        n * 2\n    }\n}\n\n"
+        "pub fn free_after(x: i32) -> i32 {\n    x + 1\n}\n\n"
+        "impl<T> Wrapper<T> {\n    pub fn get(&self) -> &T {\n        &self.v\n    }\n}\n")
+    p = Project(name="r", root=tmp_path, source="local", language=languages.RUST)
+    assert engine.enclosing_function({"file": "lib.rs", "old": "a + b"}, p) == "add"
+    assert engine.enclosing_function({"file": "lib.rs", "old": "n * 2"}, p) == "Calc.double"
+    assert engine.enclosing_function({"file": "lib.rs", "old": "x + 1"}, p) == "free_after"
+    assert engine.enclosing_function({"file": "lib.rs", "old": "&self.v"}, p) == "Wrapper.get"
+
+
+def test_build_rust_test_file_merges_and_renames(tmp_path):
+    bug1 = {"file": "src/lib.rs", "old": "a + b", "new": "a - b"}
+    bug2 = {"file": "src/lib.rs", "old": "age >= 18", "new": "age > 18"}
+    code1 = ("use rustcalc::add;\n\n#[test]\nfn checks_add() {\n"
+             "    assert_eq!(add(1, 1), 2);\n}\n")
+    code2 = ("use rustcalc::{add, is_adult};\n\n#[test]\nfn checks_adult() {\n"
+             "    assert!(is_adult(18));\n}\n")
+    p = Project(name="r", root=tmp_path, source="local", language=languages.RUST)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert out.count("use rustcalc::add;") == 1
+    assert "use rustcalc::{add, is_adult};" in out
+    assert "fn bug1_checks_add() {" in out
+    assert "fn bug2_checks_adult() {" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_fixer_extracts_rust_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```rust\nuse c::add;\n#[test]\nfn x() {}\n```", "Rust")
+    assert reason is None and "#[test]" in code
+    _, reason = _extract_code("```rust\nfn helper() {}\n```", "Rust")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -304,6 +343,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid Go" in seen["system"] and "```go" in seen["user"]
     sab.generate_bugs("c.ts", "a", "t", 1, language="TypeScript")
     assert "valid TypeScript" in seen["system"] and "```ts" in seen["user"]
+    sab.generate_bugs("l.rs", "a", "t", 1, language="Rust")
+    assert "valid Rust" in seen["system"] and "```rust" in seen["user"]
 
 
 # ---------- projects ----------

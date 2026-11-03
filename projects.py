@@ -50,6 +50,7 @@ class Project:
     gradle_tasks: list = field(default_factory=list)  # e.g. ["test"] or ["testDebugUnitTest"]
     included_gradle_tests: list = field(default_factory=list)  # passing classes (baseline set-aside)
     included_go_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
+    skipped_rust_tests: list = field(default_factory=list)  # failing tests (baseline set-aside)
     go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
@@ -101,6 +102,8 @@ class Project:
 
     def test_dir(self) -> str:
         """Folder where generated tests should live (next to the existing tests)."""
+        if self.language.id == "rust":
+            return "tests"  # cargo auto-discovers tests/*.rs; inline unit tests have no file to join
         tests = self.test_files()
         if not tests:
             return "."
@@ -391,6 +394,13 @@ def _finish(project, log):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "rust":
+        if not shutil.which("cargo"):
+            raise ProjectError("This is a Rust project, but Rust isn't installed. "
+                               "Install Rust (https://rustup.rs/) and try again.")
+        if not (project.root / "Cargo.toml").is_file():
+            raise ProjectError("No Cargo.toml found. BugBait needs a Cargo project to test Rust code.")
+        return project  # cargo manages its own dependencies
     if project.language.id == "go":
         if not shutil.which("go"):
             raise ProjectError("This is a Go project, but Go isn't installed. "

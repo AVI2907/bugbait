@@ -49,6 +49,18 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+RUST_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Rust project and the existing tests did NOT catch it.
+Write a Rust integration test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Import from the crate the same way the existing tests do (the test file sits in tests/).
+- Write one #[test] function with plain assert! / assert_eq! (no external crates).
+- Reply with ONLY one ```rust code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 TS_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a TypeScript project and the existing tests did NOT catch it.
 Write a node:test test that FAILS on the buggy code and PASSES on the original code.
 
@@ -89,7 +101,7 @@ def _extract_code(reply, language="Python"):
     block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
     markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",),
-               "Go": ("func Test",), "TypeScript": ("test(", "it(")}
+               "Go": ("func Test",), "TypeScript": ("test(", "it("), "Rust": ("#[test]",)}
     if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
@@ -120,10 +132,10 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     """
     language = project.language.label
     fence = {"python": "python", "javascript": "js", "java": "java",
-             "go": "go", "typescript": "ts"}[project.language.id]
+             "go": "go", "typescript": "ts", "rust": "rust"}[project.language.id]
     system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
               "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT,
-              "typescript": TS_SYSTEM_PROMPT}[project.language.id]
+              "typescript": TS_SYSTEM_PROMPT, "rust": RUST_SYSTEM_PROMPT}[project.language.id]
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": (
