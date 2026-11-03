@@ -2,194 +2,109 @@
 
 **Your tests pass. But would they catch a bug?**
 
-BugBait is a team of AI agents, powered by Meta's Muse Spark, that plants small, realistic bugs in your code to find the holes in your test suite. Then it writes tests that close those holes, and keeps only tests it has verified actually work.
+BugBait is a team of AI agents, powered by Meta's Muse Spark, that plants small, realistic bugs in your code to find the holes in your test suite. Then it writes tests that close those holes — keeping only tests it has verified actually work.
 
 On [`inflection`](https://github.com/jpvanhal/inflection), a popular library with 455 tests, the existing suite caught **1 of 8** planted bugs. BugBait's verified tests raised that to **8 of 8** in under a minute.
 
 ## How it works
 
 ```
- your project ──► Saboteur agent ──► planted bugs ──► run your tests on each one
-                  (Muse Spark)                               │
-                                         caught ◄────────────┤
-                                                             ▼
-                                                     bugs that got through
+your project ──► Saboteur plants bugs ──► your tests run on each one
+                                              │              │
+                                         caught (good)   got through (a gap)
                                                              │
-                                  Fixer agent (Muse Spark) ──┤ writes a test for each
-                                                             ▼
-                              verify: passes on your code AND fails on the bug?
-                                        yes ─► keep it        no ─► retry with feedback
-                                                             │
-                              before/after score · weakest spots · pull request
+                                              Fixer writes a test for each gap
+                                              keep it only if it passes on your
+                                              code AND fails on the bug
 ```
 
-1. **Saboteur.** Reads your code and tests, then proposes subtle, realistic bugs (off-by-one errors, boundary mistakes, flipped conditions) that your tests are likely to miss. It rates each bug's realism, and artificial bugs are filtered out.
-2. **Sandbox.** Every bug runs in its own throwaway copy of the project against your full test suite. Your files are never touched.
-3. **Fixer.** For each bug that got through, it writes a test. A test is accepted only if it **passes on the original code and fails on the buggy code**. Otherwise the Fixer sees the pytest output and tries again. It can also decide a change is harmless and doesn't deserve a test.
-4. **Results.** You get a before/after score, the weakest spots in your code (the functions where bugs slip through most), and a test file ready to add, or a pull request.
+1. **Saboteur** proposes subtle, realistic bugs (off-by-one errors, flipped conditions) and rates each one's realism; artificial bugs are filtered out.
+2. **Sandbox** runs every bug on a throwaway copy of your project. Your files are never touched.
+3. **Fixer** writes a test per surviving bug, retrying with feedback until it passes on your code and fails on the bug — or decides the change is harmless.
+4. **Results**: before/after score, weakest spots (where bugs slip through most), and a test file ready to add — or a pull request.
 
 ## What bugs get planted
 
-The Saboteur plants small, realistic mistakes — the kind that survive code review. Every bug changes one
-small piece of code, keeps it syntactically valid, and gets a realism rating (5 = developers do this all
-the time, 1 = artificial). Bugs below your realism threshold are dropped before they ever run.
+Small, realistic mistakes — the kind that survive code review. Each one changes a single expression, keeps the code valid, and gets a realism rating (bugs below your threshold never run).
 
-| Kind | Python | JavaScript | TypeScript | Go | Java | Rust | Ruby | PHP | C# | Kotlin |
-|---|---|---|---|---|---|---|---|---|---|---|
-| off-by-one | `range(n)` → `range(n + 1)` | `i < len` → `i <= len` | `i < len` → `i <= len` | `i < n` → `i <= n` | `i < n` → `i <= n` | `i < n` → `i <= n` | `(0...n)` → `(0..n)` | `$i < $n` → `$i <= $n` | `i < n` → `i <= n` | `i < n` → `i <= n` |
-| boundary | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` | `$age >= 18` → `$age > 18` | `age >= 18` → `age > 18` | `age >= 18` → `age > 18` |
-| wrong operator | `a and b` → `a or b` | `a \|\| b` → `a && b` | `a \|\| b` → `a && b` | `a && b` → `a \|\| b` | `a && b` → `a \|\| b` | `a && b` → `a \|\| b` | `a && b` → `a \|\| b` | `$a && $b` → `$a \|\| $b` | `a && b` → `a \|\| b` | `a && b` → `a \|\| b` |
-| inverted condition | `if valid:` → `if not valid:` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` | `if ok` → `if !ok` | `if ok` → `unless ok` | `if ($ok)` → `if (!$ok)` | `if (ok)` → `if (!ok)` | `if (ok)` → `if (!ok)` |
-| wrong default | `def f(n=10)` → `def f(n=0)` | `n = 10` → `n = 0` | `n = 10` → `n = 0` | `n := 10` → `n := 0` | `int n = 10` → `int n = 0` | `let n = 10` → `let n = 0` | `n = 10` → `n = 0` | `$n = 10` → `$n = 0` | `n = 10` → `n = 0` | `n = 10` → `n = 0` |
-| swapped arguments | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` | `f($a, $b)` → `f($b, $a)` | `f(a, b)` → `f(b, a)` | `f(a, b)` → `f(b, a)` |
-| missing case | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed | a guard clause removed |
-| wrong value | `timeout=30` → `timeout=300` | `timeout: 30` → `timeout: 300` | `timeout: 30` → `timeout: 300` | `timeout := 30` → `timeout := 300` | `timeout = 30` → `timeout = 300` | `timeout = 30` → `timeout = 300` | `timeout = 30` → `timeout = 300` | `$timeout = 30` → `$timeout = 300` | `timeout = 30` → `timeout = 300` | `timeout = 30` → `timeout = 300` |
-| error handling | `except ValueError` → `except Exception` | `throw new Error(…)` → `return null` | `throw new Error(…)` → `return null` | `if err != nil` check dropped | `catch (IOException e)` → `catch (Exception e)` | a `Result` check dropped | `rescue ArgumentError` → `rescue StandardError` | `catch (ValueError)` → `catch (Exception)` | `catch (IOException)` → `catch (Exception)` | `catch (IOException)` → `catch (Exception)` |
-
-Each planted bug runs against your full test suite. **Caught** = at least one test failed (good).
-**Survived** = every test still passed (a gap — the Fixer writes a verified test for it). Your score is
-simply *caught ÷ planted*, before and after BugBait's tests.
-
-## Use it on any project
-
-BugBait works on Python (**pytest**/unittest), JavaScript and TypeScript (**node:test**), Go
-(**go test**), Java (**Maven** & **Gradle**), Rust (**cargo test**), Ruby (**minitest** & **RSpec**),
-PHP (**PHPUnit**), C# (**dotnet test**: xUnit, NUnit, MSTest) and Kotlin (**kotlinc** + JUnit)
-projects. Give it any of these:
-
-| | |
+| Kind | Example |
 |---|---|
-| A GitHub repo | `https://github.com/owner/repo` or `owner/repo` |
-| A folder on your computer | `~/code/my-project` |
-| A built-in example | `inflection`, `calculator`, `javascript`, `typescript`, `javacalc`, `gradlecalc`, `gocalc`, `rustcalc`, `rubycalc`, `rubyspec`, `phpcalc`, `csharpcalc`, `kotlincalc` |
+| off-by-one | `i < n` → `i <= n` |
+| boundary | `age >= 18` → `age > 18` |
+| wrong operator | `a && b` → `a \|\| b` |
+| inverted condition | `if (ok)` → `if (!ok)` |
+| wrong default | `n = 10` → `n = 0` |
+| swapped arguments | `f(a, b)` → `f(b, a)` |
+| missing case | a guard clause removed |
+| wrong value | `timeout = 30` → `timeout = 300` |
+| error handling | `catch (IOException)` → `catch (Exception)` |
 
-TypeScript runs directly under Node.js 22.18+ (type stripping, no build step). Go needs a `go`
-install and a `go.mod` in the project. Rust needs a `cargo` install and a `Cargo.toml`; Ruby
-needs the `minitest` or `rspec` gem; PHP needs PHP 8.1+ and PHPUnit; C# needs the .NET SDK and
-a `.sln` or `.csproj`; Kotlin needs `kotlinc` and a JDK (test libraries download once, automatically).
+See the [landing page](https://avi2907.github.io/bugbait/#bugs) for examples in all 10 languages. **Caught** = a test failed (good). **Survived** = everything still passed (a gap). Your score is *caught ÷ planted*, before and after BugBait's tests.
 
-Java notes: BugBait picks the JDK your `pom.xml` asks for (and tells you how to install it if missing).
-Multi-module repos without a top-level `pom.xml` ask you to open one service folder. Gradle projects
-work via their `gradlew` wrapper (or a `gradle` install) — Android projects additionally need the
-Android SDK with `ANDROID_HOME` set.
+## Languages
 
-For downloaded and local projects, BugBait creates a separate Python environment, installs the project's dependencies, and sets aside any tests that already fail, so they don't hide the results.
+Python (**pytest**/unittest) · JavaScript & TypeScript (**node:test**) · Go · Java (**Maven** & **Gradle**) · Rust · Ruby (**minitest** & **RSpec**) · PHP (**PHPUnit**) · C# (**dotnet test**) · Kotlin (**kotlinc** + JUnit).
+
+Point BugBait at a GitHub repo (`owner/repo`), a local folder, or a built-in example (`calculator`, `rustcalc`, `phpcalc`, `kotlincalc`, …). Each language needs its toolchain installed (`node`, `go`, `cargo`, `php`, `dotnet`, `kotlinc` + JDK, …).
 
 ## Quick start
 
 ```bash
-git clone https://github.com/AVI2907/bugbait.git
-cd bugbait
+git clone https://github.com/AVI2907/bugbait.git && cd bugbait
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # then add your META_API_KEY
 ```
 
-### 1. Dashboard
+**Dashboard** — `python app.py` opens http://localhost:5050. Paste a GitHub link or choose a folder, tick files, and run. **Replay** re-animates a saved run with no API calls.
+
+**VS Code** — open the folder, press **F5**, then click **BugBait** in the status bar. Surviving bugs are underlined in your editor; one click adds the tests or opens a PR.
+
+**Command line:**
 
 ```bash
-python app.py               # opens http://localhost:5050
-```
-
-Paste a GitHub link or click **Choose folder…**, tick the files to attack, and click **Run with Muse Spark**. Watch each bug get planted, caught or not caught, and then fixed. **Replay** re-animates a saved run with no API calls.
-
-### 2. VS Code
-
-Open the `bugbait` folder in VS Code and press **F5** (or go to Run → Start Debugging → "Run BugBait extension"). In the new window that opens, open any Python project and click **BugBait** in the status bar.
-
-- Lines where planted bugs got past your tests are underlined, with an explanation.
-- A results panel shows the live run, the score, and the weakest spots.
-- **Add BugBait tests to project** copies the verified tests next to your existing tests.
-- **Open a pull request** sends them to GitHub.
-
-To install the extension permanently: `cd vscode-extension && npx @vscode/vsce package`, then in VS Code run **Extensions: Install from VSIX…**.
-
-### 3. Command line
-
-```bash
-python main.py inflection                          # example project
-python main.py https://github.com/un33k/python-slugify --list-files
+python main.py calculator --offline                # demo, no API key needed
 python main.py ~/code/my-project --files app/models.py --bugs 8
-python main.py inflection --no-fix                 # measure only
-python main.py calculator --offline                # no API key needed
-python main.py . --staged --no-fix                 # only test staged files
+python main.py . --staged --no-fix                 # test staged files only
 python main.py . --fail-under 70                   # exit 1 unless 70%+ caught
 python main.py --install-hook ~/code/my-project   # block weak commits
 ```
 
-## Pull requests
+## Pull requests & gates
 
-Add `GITHUB_TOKEN` to `.env` (a fine-grained token with **Contents** and **Pull requests** set to read & write). After a run, click **Open pull request** in the dashboard or VS Code, or run `python github_pr.py <project-name>`.
+Add `GITHUB_TOKEN` to `.env`, then **Open pull request** from the dashboard or VS Code (`python github_pr.py <project>` on the CLI). Can't push? BugBait forks first, so strangers never get surprise PRs.
 
-If you can push to the repo, the PR goes there. If you can't, BugBait forks it and opens the PR **in your fork**, so maintainers of projects you don't own never get unexpected pull requests. The PR description lists every gap found, why it slipped through, and the weakest spots.
-
-## Gates and automation
-
-**Pre-commit hook.** `python main.py --install-hook <repo>` writes a hook that tests only your staged files and blocks the commit unless enough planted bugs are caught (default 70%). Delete the hook file to uninstall.
-
-**GitHub Action.** Score every pull request automatically. In your repo:
-
-```yaml
-permissions:
-  pull-requests: write   # lets BugBait comment on PRs
-steps:
-  - uses: actions/checkout@v4
-  - uses: avi2907/bugbait@v1
-    with:
-      fail-under: 70
-      api-key: ${{ secrets.META_API_KEY }}
-```
-
-The report lands as a PR comment (updated in place, not spammed) and in the job summary. `fail-under: 0` reports without gating.
-
-**Run comparison.** Options (top right) → Score history: tick any two runs of one project to see score movement, per-function trends, and bugs that changed result.
+Score every PR automatically with the reusable Action (`avi2907/bugbait@v1`) — the report lands as an in-place PR comment. Options (top right) → Score history compares any two runs.
 
 ## Open-weight models
 
-Each agent can use a different provider. To run the Saboteur on **Muse Spark Open** via Baseten while the Fixer stays on the Meta Model API:
-
-```
-SABOTEUR_PROVIDER=baseten
-BASETEN_API_KEY=...
-```
-
-Any OpenAI-compatible endpoint (for example Modal) works with `SABOTEUR_PROVIDER=custom`. See `.env.example`. Each run's report records which model played which role.
+Each agent can use a different provider (`SABOTEUR_PROVIDER=baseten`, `=custom` for any OpenAI-compatible endpoint). See `.env.example`.
 
 ## Safety
 
-- BugBait never edits your project. All work happens on temporary copies, and dependency installs run from a copy too.
-- Tests run on your machine, so only point BugBait at code you trust. Installing a project's dependencies can run that project's code.
-- The only writes to your project are the ones you choose: **Add tests to project** or **Open pull request**.
+BugBait never edits your project — everything runs on temporary copies. Only point it at code you trust (dependency installs can run project code). The only writes are the ones you choose: add tests or open a PR.
 
 ## Host it
-
-The dashboard runs anywhere containers run. It reads `HOST`/`PORT` from the environment
-(defaults to localhost:5050 with the browser auto-open, unchanged for local use):
 
 ```bash
 docker build -t bugbait .
 docker run -p 5050:5050 -e META_API_KEY=... [-e GITHUB_TOKEN=...] bugbait
 ```
 
-The landing page in `docs/` is GitHub Pages ready: repo Settings → Pages → Deploy from branch → `main` / `docs`.
+The landing page in `docs/` is GitHub Pages ready: Settings → Pages → Deploy from branch → `main` / `docs`.
 
 ## Project layout
 
 | File | What it does |
 |---|---|
-| `engine.py` | The pipeline: baseline → Saboteur → sandbox runs → Fixer → rescore → report |
-| `languages.py` | Language plugins (Python, JavaScript, TypeScript, Go, Java, Rust, Ruby, PHP, C#, Kotlin): file patterns, test detection, syntax checks |
-| `agents/saboteur.py`, `agents/fixer.py` | The two Muse Spark agents |
-| `projects.py` | Loading projects from GitHub, folders or examples, and per-project Python environments |
-| `runner.py` | Throwaway sandboxes that run pytest |
-| `github_pr.py` | Opening pull requests |
-| `app.py`, `static/index.html` | Web dashboard |
-| `main.py` | Command line (and `--json` mode for VS Code) |
-| `precommit.py` | Pre-commit hook installer (`--staged` / `--fail-under` live in `main.py`) |
-| `pr_comment.py`, `action.yml` | PR comment renderer and reusable GitHub Action |
+| `engine.py` | Pipeline: baseline → Saboteur → sandbox runs → Fixer → rescore → report |
+| `languages.py` | Language plugins: file patterns, test detection, syntax checks |
+| `agents/` | The Saboteur and Fixer agents |
+| `projects.py`, `runner.py` | Project loading, Python environments, throwaway sandboxes |
+| `app.py`, `main.py` | Web dashboard and command line (`--json` feeds VS Code) |
+| `github_pr.py`, `pr_comment.py`, `action.yml`, `precommit.py` | PRs, PR comments, GitHub Action, pre-commit hook |
 | `vscode-extension/` | VS Code extension |
-| `tests/` | Unit tests for BugBait itself (`python -m pytest tests/`) |
-| `targets/` | Example projects. `inflection` is MIT-licensed and unmodified (see its `SOURCE.md`) |
+| `tests/`, `targets/` | Unit tests (`python -m pytest tests/`) and example projects |
 
 ## Built for the Meta Global AI Developer Hackathon
 
