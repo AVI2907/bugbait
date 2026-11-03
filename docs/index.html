@@ -7,7 +7,7 @@
 <meta name="description" content="BugBait plants realistic bugs in your code, runs your test suite against each one, and writes verified tests for the gaps it finds. Python, JavaScript, TypeScript, Go and Java.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -16,9 +16,9 @@
   <div class="wrap topin">
     <a class="brand" href="#top" aria-label="BugBait home">
       <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">
-        <path d="M13 2v9" stroke="#A29C8E" stroke-width="2" stroke-linecap="round"/>
-        <path d="M13 11c4 0 6 3 6 6.5S16 24 12.5 24 7 21.5 7 19" stroke="#E2B466" stroke-width="2.4" stroke-linecap="round"/>
-        <path d="M7 19l-2-2.5" stroke="#E2B466" stroke-width="2.4" stroke-linecap="round"/>
+        <circle cx="13" cy="13" r="11.5" stroke="#E2B466" stroke-width="2"/>
+        <circle cx="13" cy="13" r="3.2" fill="#E2B466"/>
+        <path d="M13 1.5v4M13 20.5v4M1.5 13h4M20.5 13h4" stroke="#4FB3A5" stroke-width="2" stroke-linecap="round"/>
       </svg>
       BugBait
     </a>
@@ -34,83 +34,103 @@
 
 <main id="top">
   <section class="wrap hero">
-    <p class="kicker">Mutation testing, minus the pain</p>
-    <h1>Break your tests <em>before</em> prod does.</h1>
-    <p class="lede">BugBait plants realistic bugs in your code, runs your test suite against each one,
-      and writes verified tests for every gap it finds. Your code is never touched — it all happens
-      on throwaway copies.</p>
-    <div class="cta">
-      <a class="btn primary" href="#start">Test your project</a>
-      <a class="btn" href="https://github.com/AVI2907/bugbait">Star on GitHub</a>
-    </div>
-    <figure class="term" aria-label="Example BugBait run">
-      <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tt">bugbait — calculator</span></figcaption>
+    <div class="heroin">
+      <div class="herotext">
+        <p class="kicker">Mutation testing, minus the pain</p>
+        <h1>Break your tests <em>before</em> prod does.</h1>
+        <p class="lede">BugBait plants realistic bugs in your code, runs your test suite against each one,
+          and writes verified tests for every gap it finds. Your code is never touched — it all happens
+          on throwaway copies.</p>
+        <div class="cta">
+          <a class="btn primary" href="#start">Test your project</a>
+          <a class="btn" href="https://github.com/AVI2907/bugbait">Star on GitHub</a>
+        </div>
+        <p class="reassure">Free and open source. Your code never leaves your machine.</p>
+        <dl class="stats">
+          <div><dt>languages</dt><dd>5</dd></div>
+          <div><dt>bug kinds</dt><dd>9</dd></div>
+          <div><dt>lines of your code touched</dt><dd>0</dd></div>
+        </dl>
+      </div>
+      <figure class="term" aria-label="Example BugBait run">
+        <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tt">bugbait — calculator</span></figcaption>
 <pre><code><span class="dim">$ python3 main.py calculator --bugs 2</span>
 Baseline: 4 tests pass
 
-Bug  1 <span class="surv">SURVIVED</span>  age &gt;= 18  →  age &gt; 18   <span class="dim">[boundary, realism 5/5]</span>
-Bug  2 <span class="surv">SURVIVED</span>  or  →  and               <span class="dim">[wrong operator]</span>
+Bug  1 <span class="surv">SURVIVED</span>  age &gt;= 18  →  age &gt; 18   <span class="dim">[boundary, 5/5]</span>
+Bug  2 <span class="surv">SURVIVED</span>  or  →  and               <span class="dim">[operator]</span>
 
 Score: 0/2 bugs caught (0%)
 
-Fixer is writing tests for 2 surviving bugs...
+Fixer is writing tests for 2 survivors...
 
   [+] verified test added  <span class="dim">boundary at 18</span>
   [+] verified test added  <span class="dim">broken validation</span>
 
 Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></pre>
-    </figure>
+      </figure>
+    </div>
   </section>
 
   <section class="wrap how" id="how">
-    <h2>How it works</h2>
+    <h2>Three steps to <em>trustworthy</em> tests</h2>
     <ol class="steps">
       <li>
-        <h3><b>1</b>Saboteur plants bugs</h3>
+        <span class="num" aria-hidden="true">01</span>
+        <div><h3>The Saboteur plants bugs</h3>
         <p>An AI agent studies your code and plants small, realistic mistakes — off-by-ones,
-          flipped operators, dropped guards. Each gets a realism rating; artificial ones are thrown out.</p>
+          flipped operators, dropped guards. Each gets a realism rating; artificial ones are thrown out.</p></div>
       </li>
       <li>
-        <h3><b>2</b>Sandbox scores your tests</h3>
+        <span class="num" aria-hidden="true">02</span>
+        <div><h3>The sandbox scores your tests</h3>
         <p>Every bug runs against your full suite in its own throwaway copy. Caught means a test
-          failed; survived means a real gap. Score: caught ÷ planted.</p>
+          failed; survived means a real gap. Your score is simply caught ÷ planted.</p></div>
       </li>
       <li>
-        <h3><b>3</b>Fixer writes the missing tests</h3>
+        <span class="num" aria-hidden="true">03</span>
+        <div><h3>The Fixer writes the missing tests</h3>
         <p>A second agent writes a test per survivor — each verified to pass on your code and fail
-          on the bug. Add them to your project or open a pull request.</p>
+          on the bug. Add them to your project or open a pull request.</p></div>
       </li>
     </ol>
   </section>
 
   <section class="wrap bugs" id="bugs">
-    <h2>What gets planted</h2>
+    <h2>Meet the <em>bugs</em></h2>
     <p class="sub">Nine bug kinds, each a one-line change that keeps the code valid — the kind of thing
-      that survives code review.</p>
+      that survives code review. Pick your language:</p>
+    <div class="tabs" role="tablist" aria-label="Bug examples by language">
+      <button role="tab" aria-selected="true" data-lang="py">Python</button>
+      <button role="tab" aria-selected="false" data-lang="js">JavaScript</button>
+      <button role="tab" aria-selected="false" data-lang="ts">TypeScript</button>
+      <button role="tab" aria-selected="false" data-lang="go">Go</button>
+      <button role="tab" aria-selected="false" data-lang="java">Java</button>
+    </div>
     <div class="tablewrap">
-      <table>
-        <thead><tr><th>Kind</th><th>Python</th><th>JavaScript</th><th>TypeScript</th><th>Go</th><th>Java</th></tr></thead>
+      <table id="bugtable">
+        <thead><tr><th scope="col">Kind</th><th scope="col" data-col="py">Python</th><th scope="col" data-col="js">JavaScript</th><th scope="col" data-col="ts">TypeScript</th><th scope="col" data-col="go">Go</th><th scope="col" data-col="java">Java</th></tr></thead>
         <tbody>
-          <tr><td>off-by-one</td><td><code>range(n)</code> → <code>range(n + 1)</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; len</code> → <code>i &lt;= len</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td><td><code>i &lt; n</code> → <code>i &lt;= n</code></td></tr>
-          <tr><td>boundary</td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td><code>age &gt;= 18</code> → <code>age &gt; 18</code></td></tr>
-          <tr><td>wrong operator</td><td><code>and</code> → <code>or</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>||</code> → <code>&amp;&amp;</code></td><td><code>&amp;&amp;</code> → <code>||</code></td><td><code>&amp;&amp;</code> → <code>||</code></td></tr>
-          <tr><td>inverted condition</td><td><code>if valid:</code> → <code>if not valid:</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td><td><code>if (ok)</code> → <code>if (!ok)</code></td></tr>
-          <tr><td>wrong default</td><td><code>n=10</code> → <code>n=0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td><td><code>n := 10</code> → <code>n := 0</code></td><td><code>n = 10</code> → <code>n = 0</code></td></tr>
-          <tr><td>swapped arguments</td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td><td><code>f(a, b)</code> → <code>f(b, a)</code></td></tr>
+          <tr><td>off-by-one</td><td data-col="py"><code>range(n)</code> → <code>range(n + 1)</code></td><td data-col="js"><code>i &lt; len</code> → <code>i &lt;= len</code></td><td data-col="ts"><code>i &lt; len</code> → <code>i &lt;= len</code></td><td data-col="go"><code>i &lt; n</code> → <code>i &lt;= n</code></td><td data-col="java"><code>i &lt; n</code> → <code>i &lt;= n</code></td></tr>
+          <tr><td>boundary</td><td data-col="py"><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td data-col="js"><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td data-col="ts"><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td data-col="go"><code>age &gt;= 18</code> → <code>age &gt; 18</code></td><td data-col="java"><code>age &gt;= 18</code> → <code>age &gt; 18</code></td></tr>
+          <tr><td>wrong operator</td><td data-col="py"><code>and</code> → <code>or</code></td><td data-col="js"><code>||</code> → <code>&amp;&amp;</code></td><td data-col="ts"><code>||</code> → <code>&amp;&amp;</code></td><td data-col="go"><code>&amp;&amp;</code> → <code>||</code></td><td data-col="java"><code>&amp;&amp;</code> → <code>||</code></td></tr>
+          <tr><td>inverted condition</td><td data-col="py"><code>if valid:</code> → <code>if not valid:</code></td><td data-col="js"><code>if (ok)</code> → <code>if (!ok)</code></td><td data-col="ts"><code>if (ok)</code> → <code>if (!ok)</code></td><td data-col="go"><code>if (ok)</code> → <code>if (!ok)</code></td><td data-col="java"><code>if (ok)</code> → <code>if (!ok)</code></td></tr>
+          <tr><td>wrong default</td><td data-col="py"><code>n=10</code> → <code>n=0</code></td><td data-col="js"><code>n = 10</code> → <code>n = 0</code></td><td data-col="ts"><code>n = 10</code> → <code>n = 0</code></td><td data-col="go"><code>n := 10</code> → <code>n := 0</code></td><td data-col="java"><code>n = 10</code> → <code>n = 0</code></td></tr>
+          <tr><td>swapped arguments</td><td data-col="py"><code>f(a, b)</code> → <code>f(b, a)</code></td><td data-col="js"><code>f(a, b)</code> → <code>f(b, a)</code></td><td data-col="ts"><code>f(a, b)</code> → <code>f(b, a)</code></td><td data-col="go"><code>f(a, b)</code> → <code>f(b, a)</code></td><td data-col="java"><code>f(a, b)</code> → <code>f(b, a)</code></td></tr>
           <tr><td>missing case</td><td colspan="5">a guard clause removed</td></tr>
-          <tr><td>wrong value</td><td><code>timeout=30</code> → <code>timeout=300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout: 30</code> → <code>timeout: 300</code></td><td><code>timeout := 30</code> → <code>timeout := 300</code></td><td><code>timeout = 30</code> → <code>timeout = 300</code></td></tr>
-          <tr><td>error handling</td><td><code>except ValueError</code> → <code>except Exception</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>throw …</code> → <code>return null</code></td><td><code>if err != nil</code> check dropped</td><td><code>catch (IOException)</code> → <code>catch (Exception)</code></td></tr>
+          <tr><td>wrong value</td><td data-col="py"><code>timeout=30</code> → <code>timeout=300</code></td><td data-col="js"><code>timeout: 30</code> → <code>timeout: 300</code></td><td data-col="ts"><code>timeout: 30</code> → <code>timeout: 300</code></td><td data-col="go"><code>timeout := 30</code> → <code>timeout := 300</code></td><td data-col="java"><code>timeout = 30</code> → <code>timeout = 300</code></td></tr>
+          <tr><td>error handling</td><td data-col="py"><code>except ValueError</code> → <code>except Exception</code></td><td data-col="js"><code>throw …</code> → <code>return null</code></td><td data-col="ts"><code>throw …</code> → <code>return null</code></td><td data-col="go"><code>if err != nil</code> check dropped</td><td data-col="java"><code>catch (IOException)</code> → <code>catch (Exception)</code></td></tr>
         </tbody>
       </table>
     </div>
   </section>
 
   <section class="wrap langs" id="languages">
-    <h2>Languages</h2>
+    <h2>Speaks your <em>language</em></h2>
     <ul class="langlist">
       <li><strong>Python</strong><span>pytest / unittest</span></li>
       <li><strong>JavaScript</strong><span>node --test</span></li>
-      <li><strong>TypeScript</strong><span>node --test, no build step</span></li>
+      <li><strong>TypeScript</strong><span>no build step</span></li>
       <li><strong>Go</strong><span>go test</span></li>
       <li><strong>Java</strong><span>Maven &amp; Gradle</span></li>
       <li class="soon"><strong>Rust &amp; more</strong><span>on the roadmap</span></li>
@@ -121,17 +141,17 @@ Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></
   </section>
 
   <section class="wrap start" id="start">
-    <h2>Get started in two minutes</h2>
+    <h2>Running in <em>two minutes</em></h2>
     <ol class="get">
       <li><p>Clone it and install the four dependencies:</p>
-        <pre><code>git clone https://github.com/AVI2907/bugbait.git
-cd bugbait && pip install -r requirements.txt</code></pre></li>
+        <div class="cmd"><pre><code>git clone https://github.com/AVI2907/bugbait.git
+cd bugbait && pip install -r requirements.txt</code></pre><button class="copy" type="button">Copy</button></div></li>
       <li><p>Add your model key to <code>.env</code>:</p>
-        <pre><code>META_API_KEY=your_key_here</code></pre></li>
+        <div class="cmd"><pre><code>META_API_KEY=your_key_here</code></pre><button class="copy" type="button">Copy</button></div></li>
       <li><p>Run the demo — no key needed for this one:</p>
-        <pre><code>python3 main.py calculator --offline</code></pre></li>
+        <div class="cmd"><pre><code>python3 main.py calculator --offline</code></pre><button class="copy" type="button">Copy</button></div></li>
       <li><p>Then open the dashboard and test anything:</p>
-        <pre><code>python3 app.py   <span class="dim"># opens http://localhost:5050</span></code></pre></li>
+        <div class="cmd"><pre><code>python3 app.py   <span class="dim"># opens http://localhost:5050</span></code></pre><button class="copy" type="button">Copy</button></div></li>
     </ol>
     <p class="sub">Your code stays on your machine. Nothing is pushed anywhere unless you click “Open pull request”.</p>
   </section>
@@ -139,10 +159,66 @@ cd bugbait && pip install -r requirements.txt</code></pre></li>
 
 <footer>
   <div class="wrap foot">
-    <span>BugBait — open source on <a href="https://github.com/AVI2907/bugbait">GitHub</a></span>
-    <span class="dim">Break your tests before prod does.</span>
+    <div class="footbrand">
+      <span class="brandline">BugBait</span>
+      <span class="dim">Break your tests before prod does.</span>
+    </div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/AVI2907/bugbait">GitHub</a>
+      <a href="#how">How it works</a>
+      <a href="#start">Get started</a>
+    </nav>
   </div>
 </footer>
+
+<script>
+(function () {
+  // Bug-table language tabs (progressive enhancement: no JS = full table).
+  var table = document.getElementById("bugtable");
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function show(lang, focus) {
+    table.setAttribute("data-show", lang);
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-lang") === lang;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      if (on && focus) t.focus();
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { show(t.getAttribute("data-lang")); });
+    t.addEventListener("keydown", function (e) {
+      var j = null;
+      if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
+      if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+      if (j !== null) { e.preventDefault(); show(tabs[j].getAttribute("data-lang"), true); }
+    });
+  });
+  show("py");
+
+  // Copy buttons on the setup commands.
+  document.querySelectorAll(".cmd").forEach(function (box) {
+    var btn = box.querySelector(".copy");
+    btn.addEventListener("click", function () {
+      var text = box.querySelector("code").innerText;
+      function done(ok) {
+        btn.textContent = ok ? "Copied" : "Copy failed";
+        setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { done(document.execCommand("copy")); } catch (e) { done(false); }
+        document.body.removeChild(ta);
+      }
+    });
+  });
+})();
+</script>
 
 </body>
 </html>
