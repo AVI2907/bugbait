@@ -23,8 +23,8 @@ SKIP_DIRS = {
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust"
-    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -117,6 +117,37 @@ class Rust(Language):
         return False
 
 
+class Ruby(Language):
+    rspec_generated_name = "bugbait_generated_spec.rb"
+    rspec_check_name = "bugbait_check_spec.rb"
+
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.endswith("_spec.rb") or rel.name.startswith("test_")
+                or rel.name.endswith("_test.rb")
+                or any(p in ("spec", "test", "tests") for p in rel.parts[:-1]))
+
+    def detect_framework(self, test_files):
+        """Which style the test files use: "rspec" or "minitest"."""
+        specs = units = 0
+        for t in test_files:
+            if t.name.endswith("_spec.rb") or "spec" in t.parts[:-1]:
+                specs += 1
+            elif (t.name.startswith("test_") or t.name.endswith("_test.rb")
+                    or any(p in ("test", "tests") for p in t.parts[:-1])):
+                units += 1
+        return "rspec" if specs > units else "minitest"
+
+    def syntax_ok(self, code: str) -> bool:
+        ruby = shutil.which("ruby")
+        if not ruby:
+            return True  # can't check: let the sandbox run be the judge
+        with tempfile.NamedTemporaryFile("w", suffix=".rb", delete=True) as f:
+            f.write(code)
+            f.flush()
+            r = subprocess.run([ruby, "-c", f.name], capture_output=True, timeout=30)
+        return r.returncode == 0
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -153,11 +184,16 @@ TYPESCRIPT = TypeScript(id="typescript", label="TypeScript", extensions=(".ts",)
 RUST = Rust(id="rust", label="Rust", extensions=(".rs",),
             generated_name="bugbait_generated.rs", check_name="bugbait_check.rs",
             test_framework="cargo test", test_hint="tests/ folders and #[test] functions")
+RUBY = Ruby(id="ruby", label="Ruby", extensions=(".rb",),
+            generated_name="test_bugbait_generated.rb", check_name="test_bugbait_check.rb",
+            test_framework="minitest or RSpec",
+            test_hint="test_*.rb, *_test.rb, *_spec.rb and test/ or spec/ folders")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY)
 
 # Extra extensions and build files that count toward a language for detection only
-DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",)}
+DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",),
+                RUBY: (".rake", ".gemspec")}
 
 
 def detect(root: Path) -> Language:
@@ -181,5 +217,7 @@ def detect(root: Path) -> Language:
         counts[TYPESCRIPT] += 1
     if (root / "Cargo.toml").is_file():
         counts[RUST] += 1
+    if (root / "Gemfile").is_file() or (root / "Rakefile").is_file():
+        counts[RUBY] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

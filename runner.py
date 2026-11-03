@@ -4,6 +4,7 @@ Each trial runs in a fresh temporary folder, so the original project is never
 modified and nothing is left behind.
 """
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +18,39 @@ ROOT = Path(__file__).parent
 def _ignore(directory, names):
     return [n for n in names
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
+
+
+def parse_minitest_results(output):
+    """(total, failed, failed_tests, passed_tests) from minitest output (needs --verbose for names)."""
+    import re
+    m = re.search(r"(\d+) runs, (\d+) assertions, (\d+) failures, (\d+) errors", output)
+    total = int(m.group(1)) if m else 0
+    failed = (int(m.group(3)) + int(m.group(4))) if m else 0
+    bad = set(re.findall(r"^\s*\d+\) (?:Failure|Error):\n(\S+)", output, re.M))
+    roster = re.findall(r"^(\S+#\S+) = ", output, re.M)
+    passed = sorted(set(roster) - bad)
+    return total, failed, sorted(bad), passed
+
+
+def parse_rspec_results(output):
+    """(total, failed, passing_locations) from `rspec --format json` output."""
+    import json
+    try:
+        doc = json.loads(output[output.index("{"):output.rindex("}") + 1])
+    except ValueError:
+        return 0, 0, []
+    summary = doc.get("summary", {})
+    locations = []
+    for e in doc.get("examples", []):
+        if e.get("status") != "failed" and e.get("file_path"):
+            path = e["file_path"][2:] if e["file_path"].startswith("./") else e["file_path"]
+            locations.append(f"{path}:{e['line_number']}")
+    return summary.get("example_count", 0), summary.get("failure_count", 0), sorted(set(locations))
+
+
+MINITEST_LOADER = ('Dir["test/**/test_*.rb", "test/**/*_test.rb", "tests/**/test_*.rb", '
+                   '"tests/**/*_test.rb", "test_*.rb", "*_test.rb"].sort.each '
+                   '{ |f| require File.expand_path(f) }')
 
 
 def parse_cargo_results(output):
@@ -126,6 +160,26 @@ class Sandbox:
                 timeout = 600  # first-time compiles are slow
         if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "ruby":
+            if self.project.ruby_framework == "rspec":
+                if test_paths:
+                    cmd = ["rspec", *test_paths]
+                elif self.project.rspec_locations:
+                    cmd = ["rspec", "--format", "json", *sorted(set(self.project.rspec_locations))]
+                else:
+                    specs = [t.as_posix() for t in self.project.test_files()
+                             if t.name.endswith("_spec.rb") or "spec" in t.parts[:-1]]
+                    cmd = ["rspec", "--format", "json", *sorted(specs)]
+            else:
+                base = ["ruby", "-Ilib", "-Itest", "-Itests", "-rminitest/autorun"]
+                if test_paths:
+                    cmd = [*base, *test_paths, "--seed", "1"]
+                else:
+                    # -e keeps eating ruby options, so minitest flags go after --.
+                    cmd = [*base, "-e", MINITEST_LOADER, "--", "--verbose", "--seed", "1"]
+                    if self.project.included_minitest_tests:
+                        names = "|".join(re.escape(t) for t in sorted(set(self.project.included_minitest_tests)))
+                        cmd += ["-n", f"/^({names})$/"]
         elif self.project.language.id == "rust":
             # libtest has no stable fail-fast, so stop_early changes nothing here.
             cmd = ["cargo", "test"]

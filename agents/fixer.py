@@ -49,6 +49,33 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+RUBY_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Ruby project and the existing tests did NOT catch it.
+Write a minitest test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Require the code the same way the existing tests do (the test file sits next to them).
+- Write one test class with one or two small test methods (def test_...), using plain
+  assert_equal / assert (no extra gems).
+- Write plain Ruby that runs on old and new versions (no endless methods, no Ruby 3-only syntax).
+- Reply with ONLY one ```ruby code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
+RSPEC_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Ruby project and the existing tests did NOT catch it.
+Write an RSpec test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Require the code the same way the existing tests do (the test file sits next to them).
+- Write one RSpec.describe block with one or two small it blocks, using plain
+  expect(...).to (no extra gems).
+- Reply with ONLY one ```ruby code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 RUST_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Rust project and the existing tests did NOT catch it.
 Write a Rust integration test that FAILS on the buggy code and PASSES on the original code.
 
@@ -92,6 +119,8 @@ change), do not write a test. Instead reply with a single line: NO_TEST: <short 
 def _check_path(project):
     d = project.test_dir()
     name = project.language.check_name
+    if project.language.id == "ruby" and project.ruby_framework == "rspec":
+        name = project.language.rspec_check_name
     return name if d in (".", "") else f"{d}/{name}"
 
 
@@ -101,7 +130,8 @@ def _extract_code(reply, language="Python"):
     block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
     markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",),
-               "Go": ("func Test",), "TypeScript": ("test(", "it("), "Rust": ("#[test]",)}
+               "Go": ("func Test",), "TypeScript": ("test(", "it("), "Rust": ("#[test]",),
+               "Ruby": ("def test_", 'it "', "it '", "RSpec.describe")}
     if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
@@ -132,10 +162,14 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     """
     language = project.language.label
     fence = {"python": "python", "javascript": "js", "java": "java",
-             "go": "go", "typescript": "ts", "rust": "rust"}[project.language.id]
+             "go": "go", "typescript": "ts", "rust": "rust",
+             "ruby": "ruby"}[project.language.id]
     system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
               "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT,
-              "typescript": TS_SYSTEM_PROMPT, "rust": RUST_SYSTEM_PROMPT}[project.language.id]
+              "typescript": TS_SYSTEM_PROMPT, "rust": RUST_SYSTEM_PROMPT,
+              "ruby": RUBY_SYSTEM_PROMPT}[project.language.id]
+    if project.language.id == "ruby" and project.ruby_framework == "rspec":
+        system = RSPEC_SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": (

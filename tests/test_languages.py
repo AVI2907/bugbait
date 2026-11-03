@@ -12,6 +12,38 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not i
 needs_go = pytest.mark.skipif(shutil.which("go") is None, reason="go not installed")
 needs_cargo = pytest.mark.skipif(shutil.which("cargo") is None, reason="cargo not installed")
 needs_rustfmt = pytest.mark.skipif(shutil.which("rustfmt") is None, reason="rustfmt not installed")
+needs_ruby = pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby not installed")
+needs_rspec = pytest.mark.skipif(shutil.which("rspec") is None, reason="rspec not installed")
+
+
+def _minitest_available():
+    import subprocess
+
+    try:
+        return subprocess.run(["ruby", "-e", "require 'minitest/autorun'"],
+                              capture_output=True, timeout=60).returncode == 0
+    except OSError:
+        return False
+
+
+needs_minitest = pytest.mark.skipif(not _minitest_available(), reason="minitest not installed")
+
+
+def write_minitest_project(path, extra=""):
+    (path / "calc.rb").write_text("def add(a, b)\n  a + b\nend\n")
+    (path / "test").mkdir(exist_ok=True)
+    (path / "test" / "test_add.rb").write_text(
+        'require "minitest/autorun"\nrequire_relative "../calc"\n\n'
+        "class TestAdd < Minitest::Test\n"
+        "  def test_add\n    assert_equal 3, add(1, 2)\n  end\n" + extra + "end\n")
+
+
+def write_rspec_project(path, extra=""):
+    (path / "calc.rb").write_text("def add(a, b)\n  a + b\nend\n")
+    (path / "spec").mkdir(exist_ok=True)
+    (path / "spec" / "calc_spec.rb").write_text(
+        'require_relative "../calc"\n\nRSpec.describe "calc" do\n'
+        '  it "adds" do\n    expect(add(1, 2)).to eq(3)\n  end\n' + extra + "end\n")
 
 
 def write_rust_crate(path, extra_test=""):
@@ -50,6 +82,12 @@ def test_detect_rust_project(tmp_path):
     (tmp_path / "Cargo.toml").write_text('[package]\nname = "x"\n')
     (tmp_path / "lib.rs").write_text("pub fn f() {}\n")
     assert languages.detect(tmp_path).id == "rust"
+
+
+def test_detect_ruby_project(tmp_path):
+    (tmp_path / "Gemfile").write_text('source "https://rubygems.org"\n')
+    (tmp_path / "calc.rb").write_text("def add(a, b)\n  a + b\nend\n")
+    assert languages.detect(tmp_path).id == "ruby"
 
 
 def test_detect_typescript_project(tmp_path):
@@ -655,5 +693,165 @@ def test_rust_fixer_verify(tmp_path):
     good = ('use rsproj::add;\n\n#[test]\nfn checks_add() {\n    assert_eq!(add(1, 1), 2);\n}\n')
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("add(1, 1), 2", "add(0, 0), 0")  # 0 passes under both + and -
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def test_ruby_test_files():
+    rb = languages.RUBY
+    assert rb.is_test_file(Path("test_add.rb"))
+    assert rb.is_test_file(Path("add_test.rb"))
+    assert rb.is_test_file(Path("calc_spec.rb"))
+    assert rb.is_test_file(Path("test/add.rb"))
+    assert rb.is_test_file(Path("spec/add.rb"))
+    assert not rb.is_test_file(Path("calc.rb"))
+
+
+def test_detect_framework():
+    rb = languages.RUBY
+    assert rb.detect_framework([Path("spec/a_spec.rb")]) == "rspec"
+    assert rb.detect_framework([Path("test/test_a.rb")]) == "minitest"
+    assert rb.detect_framework([Path("spec/a_spec.rb"), Path("test/test_a.rb")]) == "minitest"
+    assert rb.detect_framework([]) == "minitest"
+
+
+def test_parse_minitest_results():
+    from runner import parse_minitest_results
+
+    output = ("TestAdd#test_add = 0.00 s = .\nTestAdd#test_broken = 0.00 s = F\n\n"
+              "  1) Failure:\nTestAdd#test_broken [test/test_add.rb:8]:\nExpected: 3\n\n"
+              "2 runs, 2 assertions, 1 failures, 0 errors, 0 skips\n")
+    assert parse_minitest_results(output) == (2, 1, ["TestAdd#test_broken"], ["TestAdd#test_add"])
+    assert parse_minitest_results("cannot load such file\n") == (0, 0, [], [])
+
+
+def test_parse_rspec_results():
+    from runner import parse_rspec_results
+
+    body = ('{"summary": {"example_count": 2, "failure_count": 1}, "examples": ['
+            '{"status": "passed", "file_path": "spec/a_spec.rb", "line_number": 4}, '
+            '{"status": "failed", "file_path": "spec/a_spec.rb", "line_number": 8}]}')
+    assert parse_rspec_results("warning: x\n" + body + "\nCoverage done\n") == (2, 1, ["spec/a_spec.rb:4"])
+    assert parse_rspec_results("An error occurred\n") == (0, 0, [])
+
+
+@needs_ruby
+def test_ruby_syntax_check():
+    assert languages.RUBY.syntax_ok("def add(a, b)\n  a + b\nend\n")
+    assert not languages.RUBY.syntax_ok("def add(\n")
+
+
+def test_ruby_project_discovers_rb_files(tmp_path):
+    (tmp_path / "calc.rb").write_text("def add(a, b)\n  a + b\nend\n\ndef adult?(age)\n  age >= 18\nend\n")
+    (tmp_path / "test").mkdir()
+    (tmp_path / "test" / "test_add.rb").write_text('require "minitest/autorun"\n')
+    p = Project(name="rb", root=tmp_path, source="local", language=languages.RUBY)
+    assert [f["path"] for f in p.source_files()] == ["calc.rb"]
+    assert [t.as_posix() for t in p.test_files()] == ["test/test_add.rb"]
+
+
+@needs_minitest
+def test_minitest_baseline_counts_passes(tmp_path):
+    import engine
+
+    write_minitest_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    assert (p.language.id, p.ruby_framework) == ("ruby", "minitest")
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_minitest
+def test_minitest_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    write_minitest_project(tmp_path, "  def test_broken\n    assert_equal 3, add(1, 1)\n  end\n")
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.included_minitest_tests == ["TestAdd#test_add"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_minitest
+def test_minitest_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    write_minitest_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("calc.rb", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_minitest
+def test_minitest_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    write_minitest_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    bug = {"file": "calc.rb", "old": "a + b", "new": "a - b"}
+    good = ('require "minitest/autorun"\nrequire_relative "../calc"\n\n'
+            "class TestCheck < Minitest::Test\n"
+            "  def test_check\n    assert_equal 2, add(1, 1)\n  end\nend\n")
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("assert_equal 2, add(1, 1)", "assert_equal 0, add(0, 0)")
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+@needs_rspec
+def test_rspec_baseline_counts_passes(tmp_path):
+    import engine
+
+    write_rspec_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    assert (p.language.id, p.ruby_framework) == ("ruby", "rspec")
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_rspec
+def test_rspec_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    write_rspec_project(tmp_path, '  it "is broken" do\n    expect(add(1, 1)).to eq(3)\n  end\n')
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.rspec_locations == ["spec/calc_spec.rb:4"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_rspec
+def test_rspec_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    write_rspec_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("calc.rb", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_rspec
+def test_rspec_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    write_rspec_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    bug = {"file": "calc.rb", "old": "a + b", "new": "a - b"}
+    good = ('require_relative "../calc"\n\nRSpec.describe "check" do\n'
+            '  it "adds" do\n    expect(add(1, 1)).to eq(2)\n  end\nend\n')
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("expect(add(1, 1)).to eq(2)", "expect(add(0, 0)).to eq(0)")
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem

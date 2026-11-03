@@ -15,7 +15,8 @@ from pathlib import Path
 
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
-from runner import Sandbox, parse_cargo_results, parse_go_results, parse_gradle_results
+from runner import (Sandbox, parse_cargo_results, parse_go_results, parse_gradle_results,
+                    parse_minitest_results, parse_rspec_results)
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -60,6 +61,18 @@ OFFLINE_BUGS = {
         {"file": "src/lib.rs", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
         {"file": "src/lib.rs", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
         {"file": "src/lib.rs", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "rubycalc": [
+        {"file": "calc.rb", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "calc.rb", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.rb", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "rubyspec": [
+        {"file": "calc.rb", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "calc.rb", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.rb", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
 }
@@ -177,8 +190,31 @@ def enclosing_rust_function(bug, project):
     return None
 
 
+def enclosing_ruby_function(bug, project):
+    """Nearest def (or test/it block) above a bug, with its class or module."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    for i in range(line - 1, -1, -1):
+        dm = re.search(r"^\s*def\s+(?:self\.)?(\w+[?!]?)", lines[i])
+        bm = re.search(r"^\s*(?:test|it)\s+[\"'](.+?)[\"']\s+do\b", lines[i]) if not dm else None
+        if not dm and not bm:
+            continue
+        if bm:
+            return bm.group(1)
+        name = dm.group(1)
+        for j in range(i - 1, -1, -1):
+            c = re.search(r"^\s*(?:class|module)\s+(\w+)", lines[j])
+            if c:
+                return f"{c.group(1)}.{name}"
+        return name
+    return None
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id == "ruby":
+        return enclosing_ruby_function(bug, project)
     if project.language.id == "rust":
         return enclosing_rust_function(bug, project)
     if project.language.id == "go":
@@ -229,6 +265,8 @@ def generated_path(project):
     """Where the generated test file goes inside the project (next to the existing tests)."""
     d = project.test_dir()
     name = project.language.generated_name
+    if project.language.id == "ruby" and project.ruby_framework == "rspec":
+        name = project.language.rspec_generated_name
     return name if d in (".", "") else f"{d}/{name}"
 
 
@@ -240,8 +278,8 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust or Java project, "
-                    "that's why — more languages are coming.")
+            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby or Java "
+                    "project, that's why — more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -285,6 +323,64 @@ def _go_readable(output, limit=3000):
         if event.get("Action") == "output" and event.get("Output"):
             texts.append(event["Output"])
     return ("".join(texts).strip() or output)[-limit:]
+
+
+def _minitest_total(project):
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+    return passed, output, parse_minitest_results(output)
+
+
+def minitest_baseline(project, emit):
+    """Baseline for minitest projects (full roster from --verbose, set-aside via -n)."""
+    passed, output, (total, failed, _, passed_t) = _minitest_total(project)
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed or not passed:
+        if not passed_t:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.included_minitest_tests = passed_t
+        set_aside = failed
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        passed, output, (total, failed, _, _) = _minitest_total(project)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
+
+
+def rspec_baseline(project, emit):
+    """Baseline for RSpec projects (JSON report, set-aside by file:line)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, locations = parse_rspec_results(output)
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed or not passed:
+        if not locations:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.rspec_locations = locations
+        set_aside = failed
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _ = parse_rspec_results(output)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
 
 
 def rust_baseline(project, emit):
@@ -353,6 +449,10 @@ def baseline(project, emit):
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "ruby":
+        if project.ruby_framework == "rspec":
+            return rspec_baseline(project, emit)
+        return minitest_baseline(project, emit)
     if project.language.id == "rust":
         return rust_baseline(project, emit)
     if project.language.id == "go":
@@ -542,9 +642,71 @@ def _build_rust_test_file(accepted):
     return head + ("\n".join(imports) + "\n\n" if imports else "") + "\n\n".join(bodies) + "\n"
 
 
+def _ruby_def_blocks(code):
+    """Extract each `def test_...end` method by depth-counting def/end lines."""
+    lines, out = code.splitlines(), []
+    i = 0
+    while i < len(lines):
+        if re.match(r"^\s*def\s+test_\w+[?!]?", lines[i]):
+            depth, block = 0, []
+            for j in range(i, len(lines)):
+                if re.match(r"^\s*def\b", lines[j]):
+                    depth += 1
+                if re.match(r"^\s*end\b", lines[j]):
+                    depth -= 1
+                block.append(lines[j])
+                if depth == 0:
+                    break
+            out.append("\n".join(block))
+            i += len(block)
+        else:
+            i += 1
+    return out
+
+
+def _build_minitest_file(accepted):
+    requires, bodies = [], []
+    for i, bug, code in accepted:
+        for line in code.splitlines():
+            s = line.strip()
+            if s.startswith("require") and s not in requires:
+                requires.append(s)
+        for block in _ruby_def_blocks(code):
+            renamed = re.sub(r"^(\s*def\s+)test_", rf"\1test_bug{i}_", block, count=1)
+            header = f"# Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            bodies.append(f"{header}\n{renamed}")
+    head = "# Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    parts = []
+    for b in bodies:
+        header, rest = b.split("\n", 1)
+        parts.append(f"  {header}\n{rest}")  # methods keep the indent they were verified with
+    cls = "class BugbaitGeneratedTest < Minitest::Test\n" + "\n\n".join(parts) + "\nend\n"
+    return head + ("\n".join(requires) + "\n\n" if requires else "") + cls
+
+
+def _build_rspec_file(accepted):
+    requires, bodies = [], []
+    for i, bug, code in accepted:
+        rest = []
+        for line in code.splitlines():
+            s = line.strip()
+            if s.startswith("require") and s not in requires:
+                requires.append(s)
+            else:
+                rest.append(line)
+        header = f"# Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+        bodies.append(f"{header}\n" + "\n".join(rest).strip())
+    head = "# Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    return head + ("\n".join(requires) + "\n\n" if requires else "") + "\n\n\n".join(bodies) + "\n"
+
+
 def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     language = project.language
+    if language.id == "ruby":
+        if project.ruby_framework == "rspec":
+            return _build_rspec_file(accepted)
+        return _build_minitest_file(accepted)
     if language.id == "rust":
         return _build_rust_test_file(accepted)
     if language.id in ("javascript", "typescript"):

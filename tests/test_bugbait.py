@@ -322,6 +322,61 @@ def test_fixer_extracts_rust_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_ruby_function(tmp_path):
+    (tmp_path / "calc.rb").write_text(
+        "def add(a, b)\n  a + b\nend\n\n"
+        "class Calc\n  def double(n)\n    n * 2\n  end\n\n"
+        "  def self.triple(n)\n    n * 3\n  end\nend\n")
+    (tmp_path / "calc_spec.rb").write_text(
+        'RSpec.describe "calc" do\n  it "adds numbers" do\n    expect(add(1, 2)).to eq(3)\n  end\nend\n')
+    p = Project(name="rb", root=tmp_path, source="local", language=languages.RUBY)
+    assert engine.enclosing_function({"file": "calc.rb", "old": "a + b"}, p) == "add"
+    assert engine.enclosing_function({"file": "calc.rb", "old": "n * 2"}, p) == "Calc.double"
+    assert engine.enclosing_function({"file": "calc.rb", "old": "n * 3"}, p) == "Calc.triple"
+    assert engine.enclosing_function({"file": "calc_spec.rb", "old": "eq(3)"}, p) == "adds numbers"
+
+
+def test_build_minitest_file_merges_and_renames(tmp_path):
+    bug1 = {"file": "calc.rb", "old": "a + b", "new": "a - b"}
+    bug2 = {"file": "calc.rb", "old": "age >= 18", "new": "age > 18"}
+    code1 = ('require "minitest/autorun"\nrequire_relative "../calc"\n\n'
+             "class TestCheck < Minitest::Test\n"
+             "  def test_check\n    assert_equal 2, add(1, 1)\n  end\nend\n")
+    code2 = ('require "minitest/autorun"\nrequire_relative "../calc"\n\n'
+             "class TestCheck < Minitest::Test\n"
+             "  def test_check\n    assert adult?(18)\n  end\nend\n")
+    p = Project(name="rb", root=tmp_path, source="local", language=languages.RUBY)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert out.count('require "minitest/autorun"') == 1
+    assert "class BugbaitGeneratedTest < Minitest::Test" in out
+    assert "def test_bug1_check" in out
+    assert "def test_bug2_check" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_build_rspec_file_concatenates(tmp_path):
+    bug1 = {"file": "calc.rb", "old": "a + b", "new": "a - b"}
+    code1 = ('require_relative "../calc"\n\nRSpec.describe "check" do\n'
+             '  it "adds" do\n    expect(add(1, 1)).to eq(2)\n  end\nend\n')
+    p = Project(name="rb", root=tmp_path, source="local", language=languages.RUBY)
+    p.ruby_framework = "rspec"
+    out = engine.build_test_file([(1, bug1, code1)], p)
+    assert out.count('require_relative "../calc"') == 1
+    assert 'RSpec.describe "check" do' in out
+    assert "Catches bug 1" in out
+
+
+def test_fixer_extracts_ruby_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```ruby\ndef test_x\n  assert_equal 1, f\nend\n```", "Ruby")
+    assert reason is None and "def test_x" in code
+    code, reason = _extract_code("```ruby\nRSpec.describe \"x\" do\nend\n```", "Ruby")
+    assert reason is None and "RSpec.describe" in code
+    _, reason = _extract_code("```ruby\nx = 1\n```", "Ruby")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -345,6 +400,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid TypeScript" in seen["system"] and "```ts" in seen["user"]
     sab.generate_bugs("l.rs", "a", "t", 1, language="Rust")
     assert "valid Rust" in seen["system"] and "```rust" in seen["user"]
+    sab.generate_bugs("c.rb", "a", "t", 1, language="Ruby")
+    assert "valid Ruby" in seen["system"] and "```ruby" in seen["user"]
 
 
 # ---------- projects ----------

@@ -51,6 +51,9 @@ class Project:
     included_gradle_tests: list = field(default_factory=list)  # passing classes (baseline set-aside)
     included_go_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
     skipped_rust_tests: list = field(default_factory=list)  # failing tests (baseline set-aside)
+    ruby_framework: str = "minitest"  # "minitest" | "rspec"
+    included_minitest_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
+    rspec_locations: list = field(default_factory=list)  # passing file:line (baseline set-aside)
     go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
@@ -394,6 +397,27 @@ def _finish(project, log):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "ruby":
+        ruby = shutil.which("ruby")
+        if not ruby:
+            raise ProjectError("This is a Ruby project, but Ruby isn't installed. "
+                               "Install Ruby (https://www.ruby-lang.org/) and try again.")
+        project.ruby_framework = project.language.detect_framework(project.test_files())
+        if project.ruby_framework == "rspec":
+            if not shutil.which("rspec"):
+                raise ProjectError("This project uses RSpec, but it isn't installed. "
+                                   "Run `gem install rspec` and try again.")
+        else:
+            try:
+                has_minitest = subprocess.run(
+                    [ruby, "-e", "require 'minitest/autorun'"],
+                    capture_output=True, timeout=60).returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                has_minitest = False
+            if not has_minitest:
+                raise ProjectError("This project uses minitest, but it isn't installed. "
+                                   "Run `gem install minitest` and try again.")
+        return project  # system gems; bundler projects aren't installed automatically (yet)
     if project.language.id == "rust":
         if not shutil.which("cargo"):
             raise ProjectError("This is a Rust project, but Rust isn't installed. "
