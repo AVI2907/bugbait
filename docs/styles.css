@@ -152,9 +152,6 @@ tbody code, .get p code { background: var(--raise); padding: 1px 7px; border-rad
   background: var(--pine); align-self: center; }
 .langlist strong { font-size: 15px; font-weight: 600; }
 .langlist span { color: var(--muted); font-family: var(--mono); font-size: 12px; }
-.langlist .soon { border-style: dashed; background: transparent; }
-.langlist .soon::before { background: var(--line); }
-.langlist .soon strong { color: var(--muted); font-weight: 400; }
 
 /* get started */
 .get { list-style: none; margin: 10px 0 0; padding: 0; counter-reset: get; display: grid; gap: 6px; }
