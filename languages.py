@@ -23,8 +23,8 @@ SKIP_DIRS = {
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby" | "php" | "csharp"
-    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby" | "PHP" | "C#"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby" | "php" | "csharp" | "kotlin"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby" | "PHP" | "C#" | "Kotlin"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -175,6 +175,17 @@ class CSharp(Language):
         return True
 
 
+class Kotlin(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.endswith(("Test.kt", "Tests.kt", "TestCase.kt"))
+                or any(p in ("tests", "test") for p in rel.parts[:-1]))
+
+    def syntax_ok(self, code: str) -> bool:
+        # kotlinc is too slow to run per bug, so every bug goes to the sandbox:
+        # builds that break count as caught (a known over-count).
+        return True
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -221,8 +232,11 @@ PHP = PHP(id="php", label="PHP", extensions=(".php",),
 CSHARP = CSharp(id="csharp", label="C#", extensions=(".cs",),
                 generated_name="BugbaitGeneratedTest.cs", check_name="BugbaitCheckTest.cs",
                 test_framework="dotnet test", test_hint="*Test.cs files and tests/ folders")
+KOTLIN = Kotlin(id="kotlin", label="Kotlin", extensions=(".kt",),
+                generated_name="BugbaitGeneratedTest.kt", check_name="BugbaitCheckTest.kt",
+                test_framework="kotlinc + JUnit", test_hint="*Test.kt files and tests/ folders")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP, CSHARP)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP, CSHARP, KOTLIN)
 
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",),
@@ -256,5 +270,20 @@ def detect(root: Path) -> Language:
         counts[PHP] += 1
     if any(root.glob("*.sln")) or any(root.glob("*.csproj")):
         counts[CSHARP] += 1
+    kt = java_src = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for f in filenames:
+            if f.endswith(".kt"):
+                kt += 1
+            elif f.endswith(".java"):
+                java_src += 1
+    jvm_build = ((root / "pom.xml").is_file() or (root / "build.gradle").is_file()
+                 or (root / "build.gradle.kts").is_file())
+    if kt and not java_src and not jvm_build:
+        # Standalone Kotlin (Kotlin inside Gradle/Maven keeps flowing to the Java runner).
+        others = max([c for lang, c in counts.items() if lang not in (JAVA, KOTLIN)] + [0])
+        if kt >= others and kt > counts[JAVA] - kt:
+            return KOTLIN
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

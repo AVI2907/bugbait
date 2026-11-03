@@ -458,6 +458,47 @@ def test_fixer_extracts_csharp_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_kotlin_function(tmp_path):
+    (tmp_path / "Calc.kt").write_text(
+        "object Calc {\n    fun add(a: Int, b: Int): Int = a + b\n}\n\n"
+        "fun doubled(n: Int): Int = n * 2\n\n"
+        'fun String.shout(): String = this + "!"\n')
+    p = Project(name="kt", root=tmp_path, source="local", language=languages.KOTLIN)
+    assert engine.enclosing_function({"file": "Calc.kt", "old": "a + b"}, p) == "Calc.add"
+    assert engine.enclosing_function({"file": "Calc.kt", "old": "n * 2"}, p) == "doubled"
+    assert engine.enclosing_function({"file": "Calc.kt", "old": 'this + "!"'}, p) == "String.shout"
+
+
+def test_build_kotlin_test_file_merges_and_renames(tmp_path):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "CalcTest.kt").write_text("package calc\n\nclass CalcTest\n")
+    bug1 = {"file": "Calc.kt", "old": "a + b", "new": "a - b"}
+    bug2 = {"file": "Calc.kt", "old": "age >= 18", "new": "age > 18"}
+    code1 = ("package calc\n\nimport org.junit.Test\nimport org.junit.Assert.*\n\n"
+             "class BugbaitCheck {\n    @Test\n    fun checkAdd() {\n"
+             "        assertEquals(4, Calc.add(2, 2))\n    }\n}\n")
+    code2 = ("package calc\n\nimport org.junit.Test\nimport org.junit.Assert.*\n\n"
+             "class BugbaitCheck {\n    @Test\n    fun `boundary age`() {\n"
+             "        assertTrue(Calc.isAdult(18))\n    }\n}\n")
+    p = Project(name="kt", root=tmp_path, source="local", language=languages.KOTLIN)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert "package calc" in out
+    assert out.count("import org.junit.Test") == 1
+    assert "class BugbaitGeneratedTest" in out
+    assert "fun Bug1_checkAdd()" in out
+    assert "fun Bug2_boundary_age()" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_fixer_extracts_kotlin_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```kotlin\n@Test\nfun x() {}\n```", "Kotlin")
+    assert reason is None and "@Test" in code
+    _, reason = _extract_code("```kotlin\nfun helper() {}\n```", "Kotlin")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -487,6 +528,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid PHP" in seen["system"] and "```php" in seen["user"]
     sab.generate_bugs("C.cs", "a", "t", 1, language="C#")
     assert "valid C#" in seen["system"] and "```csharp" in seen["user"]
+    sab.generate_bugs("C.kt", "a", "t", 1, language="Kotlin")
+    assert "valid Kotlin" in seen["system"] and "```kotlin" in seen["user"]
 
 
 # ---------- projects ----------

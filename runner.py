@@ -4,6 +4,7 @@ Each trial runs in a fresh temporary folder, so the original project is never
 modified and nothing is left behind.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -18,6 +19,32 @@ ROOT = Path(__file__).parent
 def _ignore(directory, names):
     return [n for n in names
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
+
+
+def parse_junit_results(output):
+    """(total, failed, failed_classes) from JUnitCore output (class-level set-aside)."""
+    m = re.search(r"Tests run: (\d+),\s*Failures: (\d+)", output)
+    if m:
+        total, failed = int(m.group(1)), int(m.group(2))
+    else:
+        m = re.search(r"OK \((\d+) tests?\)", output)
+        total, failed = (int(m.group(1)), 0) if m else (0, 0)
+    classes = {m.group(1) for m in re.finditer(r"^\d+\) \S+\(([\w.]+)\)", output, re.M)}
+    return total, failed, sorted(classes)
+
+
+def kotlin_test_class(path):
+    """Fully qualified test class from a .kt file ("pkg.Class" or "Class"), or None."""
+    try:
+        text = Path(path).read_text()
+    except (UnicodeDecodeError, OSError):
+        return None
+    pkg = re.search(r"(?m)^package\s+([\w.]+)", text)
+    cls = re.search(r"(?m)^\s*(?:open\s+|final\s+|abstract\s+|public\s+|internal\s+|private\s+"
+                      r"|protected\s+|data\s+|sealed\s+)*class\s+(\w+)", text)
+    if not cls:
+        return None
+    return f"{pkg.group(1)}.{cls.group(1)}" if pkg else cls.group(1)
 
 
 def parse_dotnet_results(output):
@@ -176,6 +203,42 @@ class Sandbox:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
+    def _run_kotlin(self, test_paths, timeout):
+        """Compile everything with kotlinc, then run test classes with JUnitCore."""
+        libs = self.project.kotlin_libs
+        cp = os.pathsep.join([libs["junit"], libs["hamcrest"], libs["stdlib"]])
+        sources = sorted(str(p.relative_to(self.path)) for p in self.path.rglob("*.kt")
+                         if "bugbait-classes" not in p.parts)
+        out = self.path / "bugbait-classes"
+        try:
+            compiled = subprocess.run(
+                [self.project.kotlin_cmd, *sources, "-cp", cp, "-d", str(out)],
+                cwd=self.path, capture_output=True, text=True,
+                timeout=timeout, env=self.project.env(self.path))
+        except (subprocess.SubprocessError, OSError) as e:
+            return False, f"Couldn't run kotlinc: {e}"
+        if compiled.returncode != 0:
+            return False, compiled.stdout + compiled.stderr
+        if test_paths:
+            classes = [c for c in (kotlin_test_class(self.path / t) for t in test_paths) if c]
+        else:
+            classes = [c for c in (kotlin_test_class(p) for p in sorted(self.path.rglob("*.kt"))
+                                   if self.project.language.is_test_file(p.relative_to(self.path)))
+                       if c]
+            classes = [c for c in classes if c not in set(self.project.excluded_kotlin_classes)]
+        if not classes:
+            return True, "OK (0 tests)"
+        try:
+            result = subprocess.run(
+                [self.project.java_bin, "-cp",
+                 os.pathsep.join([str(out), libs["junit"], libs["hamcrest"], libs["stdlib"]]),
+                 "org.junit.runner.JUnitCore", *classes],
+                cwd=self.path, capture_output=True, text=True,
+                timeout=timeout, env=self.project.env(self.path))
+        except (subprocess.SubprocessError, OSError) as e:
+            return False, f"Couldn't run the tests: {e}"
+        return result.returncode == 0, result.stdout + result.stderr
+
     def list_phpunit_tests(self, timeout=300):
         """Test names from `phpunit --list-tests` (for set-aside); [] if it fails."""
         files = sorted(t.as_posix() for t in self.project.test_files())
@@ -195,10 +258,12 @@ class Sandbox:
         if timeout == 300:
             if self.project.language.id == "java":
                 timeout = 900  # Maven builds (and first-run downloads) are slow
-            elif self.project.language.id in ("rust", "csharp"):
+            elif self.project.language.id in ("rust", "csharp", "kotlin"):
                 timeout = 600  # first-time compiles are slow
         if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "kotlin":
+            return self._run_kotlin(test_paths, timeout)
         elif self.project.language.id == "csharp":
             cmd = ["dotnet", "test", self.project.dotnet_target]
             if test_paths:

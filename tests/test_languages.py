@@ -37,6 +37,20 @@ def _dotnet_runs():
 needs_dotnet_runs = pytest.mark.skipif(not _dotnet_runs(), reason="dotnet test needs sockets")
 
 
+def _kotlinc_works():
+    import subprocess
+
+    if shutil.which("kotlinc") is None or shutil.which("java") is None:
+        return False
+    try:  # some systems ship a java stub that can't run anything
+        return subprocess.run(["java", "-version"], capture_output=True, timeout=60).returncode == 0
+    except OSError:
+        return False
+
+
+needs_kotlinc = pytest.mark.skipif(not _kotlinc_works(), reason="kotlinc and java not installed")
+
+
 def write_phpunit_project(path, extra=""):
     (path / "calc.php").write_text("<?php\n\nfunction add($a, $b) {\n    return $a + $b;\n}\n")
     (path / "tests").mkdir(exist_ok=True)
@@ -133,6 +147,17 @@ def test_detect_csharp_project(tmp_path):
     assert languages.detect(tmp_path).id == "csharp"
 
 
+def test_detect_kotlin_project(tmp_path):
+    (tmp_path / "Calc.kt").write_text("object Calc {}\n")
+    assert languages.detect(tmp_path).id == "kotlin"
+
+
+def test_detect_kotlin_in_gradle_stays_java(tmp_path):
+    (tmp_path / "build.gradle.kts").write_text("plugins {}\n")
+    (tmp_path / "Main.kt").write_text("fun main() {}\n")
+    assert languages.detect(tmp_path).id == "java"
+
+
 def test_detect_typescript_project(tmp_path):
     (tmp_path / "tsconfig.json").write_text("{}\n")
     (tmp_path / "calc.ts").write_text("export const add = (a: number, b: number): number => a + b;\n")
@@ -158,8 +183,11 @@ def test_detect_java_and_jvm_projects(tmp_path):
     assert languages.detect(tmp_path).id == "java"
 
 
-def test_detect_kotlin_counts_as_java(tmp_path):
+def test_detect_kotlin_java_mix_stays_java(tmp_path):
+    # Standalone .kt is now Kotlin (see test_detect_kotlin_project); mixed with
+    # Java sources it still flows to the Java runner.
     (tmp_path / "App.kt").write_text("fun main() {}\n")
+    (tmp_path / "Main.java").write_text("class Main {}\n")
     assert languages.detect(tmp_path).id == "java"
 
 
@@ -1116,5 +1144,97 @@ def test_dotnet_fixer_verify(tmp_path):
             "    [Fact]\n    public void Check() => Assert.Equal(2, Calc.Add(1, 1));\n}\n")
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("Assert.Equal(2, Calc.Add(1, 1))", "Assert.Equal(0, Calc.Add(0, 0))")
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def _copy_kotlin_demo(path):
+    import shutil as _shutil
+
+    demo = Path(__file__).resolve().parent.parent / "targets" / "kotlincalc"
+    for src in [demo / "Calc.kt", demo / "tests" / "CalcTest.kt"]:
+        dest = path / src.relative_to(demo)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copy(src, dest)
+    return path
+
+
+def test_kotlin_test_files():
+    kt = languages.KOTLIN
+    assert kt.is_test_file(Path("CalcTest.kt"))
+    assert kt.is_test_file(Path("CalcTests.kt"))
+    assert kt.is_test_file(Path("tests/Calc.kt"))
+    assert not kt.is_test_file(Path("Calc.kt"))
+
+
+def test_parse_junit_results():
+    from runner import parse_junit_results
+
+    failing = ("1) addsNumbers(CalcTest)\n"
+               "Tests run: 3,  Failures: 1\n")
+    assert parse_junit_results(failing) == (3, 1, ["CalcTest"])
+    assert parse_junit_results("OK (3 tests)\n") == (3, 0, [])
+    assert parse_junit_results("error: unresolved reference\n") == (0, 0, [])
+
+
+def test_kotlin_test_class(tmp_path):
+    from runner import kotlin_test_class
+
+    f = tmp_path / "CalcTest.kt"
+    f.write_text("package calc\n\nimport org.junit.Test\n\ninternal class CalcTest {\n}\n")
+    assert kotlin_test_class(f) == "calc.CalcTest"
+    f.write_text("object Calc {\n}\n")
+    assert kotlin_test_class(f) is None
+
+
+@needs_kotlinc
+def test_kotlin_baseline_counts_passes(tmp_path):
+    import engine
+
+    p = resolve(str(_copy_kotlin_demo(tmp_path)), log=lambda m: None)
+    assert p.language.id == "kotlin"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 3
+
+
+@needs_kotlinc
+def test_kotlin_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    _copy_kotlin_demo(tmp_path)
+    (tmp_path / "tests" / "BrokenTest.kt").write_text(
+        "import org.junit.Test\nimport org.junit.Assert.*\n\nclass BrokenTest {\n"
+        "    @Test\n    fun broken() {\n        assertEquals(3, Calc.add(1, 1))\n    }\n}\n")
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 3
+    assert p.excluded_kotlin_classes == ["BrokenTest"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_kotlinc
+def test_kotlin_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    p = resolve(str(_copy_kotlin_demo(tmp_path)), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("Calc.kt", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_kotlinc
+def test_kotlin_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    p = resolve(str(_copy_kotlin_demo(tmp_path)), log=lambda m: None)
+    bug = {"file": "Calc.kt", "old": "a + b", "new": "a - b"}
+    good = ("import org.junit.Test\nimport org.junit.Assert.*\n\nclass BugbaitCheck {\n"
+            "    @Test\n    fun checkAdd() {\n        assertEquals(4, Calc.add(2, 2))\n    }\n}\n")
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("assertEquals(4, Calc.add(2, 2))", "assertEquals(0, Calc.add(0, 0))")
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem

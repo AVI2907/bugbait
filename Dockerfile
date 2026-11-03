@@ -8,12 +8,18 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# git (clones) + node (JavaScript) + JDK/Maven (Java) + Go + Rust + Ruby + PHP.
+# git (clones) + node (JavaScript) + JDK/Maven (Java) + Go + Rust + Ruby + PHP + Kotlin.
 # default-jdk-headless follows the distro default (trixie ships 21; plain "17" doesn't exist there).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git curl ca-certificates nodejs npm default-jdk-headless maven golang cargo rustc rustfmt ruby \
-        php phpunit \
+        git curl ca-certificates unzip nodejs npm default-jdk-headless maven golang cargo rustc rustfmt \
+        ruby php phpunit \
     && rm -rf /var/lib/apt/lists/*
+# Kotlin compiler (kotlinc) from the official release.
+ARG KOTLIN_VERSION=2.1.21
+RUN curl -sSL -o /tmp/kotlin.zip \
+        https://github.com/JetBrains/kotlin/releases/download/v${KOTLIN_VERSION}/kotlin-compiler-${KOTLIN_VERSION}.zip \
+    && unzip -q /tmp/kotlin.zip -d /opt && rm /tmp/kotlin.zip \
+    && ln -s /opt/kotlinc/bin/kotlinc /usr/local/bin/kotlinc
 RUN gem install --no-document minitest rspec
 # .NET SDK (C#) from Microsoft's feed (Debian 13 / trixie).
 RUN curl -sSL -o /tmp/ms-prod.deb \

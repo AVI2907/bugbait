@@ -9,6 +9,7 @@ BugBait never edits the original project. Every trial runs on a temporary copy.
 """
 
 import base64
+import functools
 import glob
 import hashlib
 import os
@@ -59,6 +60,10 @@ class Project:
     dotnet_target: str = ""  # .sln or test .csproj that `dotnet test` runs
     excluded_dotnet_tests: list = field(default_factory=list)  # failing tests (baseline set-aside)
     dotnet_extra_env: dict = field(default_factory=dict)  # NUGET_PACKAGES fallback (restricted HOME)
+    kotlin_cmd: str = ""  # kotlinc binary
+    java_bin: str = ""  # java binary (Kotlin test runs)
+    kotlin_libs: dict = field(default_factory=dict)  # junit/hamcrest/stdlib jars (downloaded once)
+    excluded_kotlin_classes: list = field(default_factory=list)  # failing classes (baseline set-aside)
     go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
@@ -352,6 +357,59 @@ def _finish_gradle(project, log):
     return project
 
 
+KOTLIN_STDLIB_FALLBACKS = ["2.4.21", "1.9.24"]
+
+
+@functools.lru_cache(maxsize=8)
+def _kotlinc_version(kotlinc):
+    """Compiler version ("2.4.21") from `kotlinc -version`, or None."""
+    try:
+        found = subprocess.run([kotlinc, "-version"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    m = re.search(r"(\d+\.\d+\.\d+)", found.stdout + found.stderr)
+    return m.group(1) if m else None
+
+
+def _download(url, dest):
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": "BugBait"})
+    with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
+        f.write(resp.read())
+
+
+def _ensure_kotlin_libs(kotlinc, log):
+    """JUnit + stdlib jars, downloaded once into the workspace and reused."""
+    d = WORKSPACE / "kotlin-libs"
+    d.mkdir(parents=True, exist_ok=True)
+    urls = {"junit": ["https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar"],
+            "hamcrest": ["https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/"
+                         "hamcrest-core-1.3.jar"]}
+    versions = [v for v in [_kotlinc_version(kotlinc), *KOTLIN_STDLIB_FALLBACKS] if v]
+    urls["stdlib"] = [f"https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-stdlib/{v}/"
+                      f"kotlin-stdlib-{v}.jar" for v in versions]
+    out = {}
+    for key, candidates in urls.items():
+        dest = d / f"kotlin-{key}.jar" if key == "stdlib" else d / f"{key}.jar"
+        if dest.is_file() and dest.stat().st_size:
+            out[key] = str(dest)
+            continue
+        for url in candidates:
+            try:
+                log(f"Downloading {dest.name} (one-time setup)...")
+                _download(url, dest)
+                break
+            except (OSError, ValueError):
+                if dest.is_file():
+                    dest.unlink()
+        else:
+            raise ProjectError(f"Couldn't download {dest.name}. "
+                               "Check your network connection and try again.")
+        out[key] = str(dest)
+    return out
+
+
 def _dotnet_target(root):
     """What `dotnet test` should run: the solution, else the test project, else any project."""
     slns = sorted(root.glob("*.sln"))
@@ -454,6 +512,20 @@ def _finish(project, log):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "kotlin":
+        kotlinc = shutil.which("kotlinc")
+        if not kotlinc:
+            raise ProjectError("This is a Kotlin project, but kotlinc isn't installed. "
+                               "Install Kotlin (https://kotlinlang.org/docs/command-line-compiler.html) "
+                               "and try again.")
+        java = shutil.which("java")
+        if not java:
+            raise ProjectError("Kotlin tests run on Java, but Java isn't installed. "
+                               "Install a JDK and try again.")
+        project.kotlin_cmd = kotlinc
+        project.java_bin = java
+        project.kotlin_libs = _ensure_kotlin_libs(kotlinc, log)
+        return project  # test libraries are downloaded once into the workspace
     if project.language.id == "csharp":
         if not shutil.which("dotnet"):
             raise ProjectError("This is a C# project, but the .NET SDK isn't installed. "
