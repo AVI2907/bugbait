@@ -21,15 +21,19 @@ Working top-down. Checked = built.
 - [ ] Incremental runs (only attack files changed in the PR/branch)
 - [ ] Budget caps (max spend per run, graceful stop)
 
-## Phase 5 — More languages (JS, TS, Go, Java done)
+## Phase 5 — More languages (10 done: Python, JS, TS, Go, Java, Rust, Ruby, PHP, C#, Kotlin)
 - [x] JavaScript (node:test, zero dependencies) + demo target
 - [x] Java (Maven): JDK auto-select, set-aside, demo target — proven on order-service
 - [x] Gradle JVM support (wrapper/binary, XML parsing, set-aside, demo) — proven on a real machine
 - [x] Gradle live Fixer round proof (0% → 100% on gradlecalc)
 - [x] TypeScript (node type-stripping, zero dependencies) + demo target
 - [x] Go (go test -json, set-aside, Fixer, demo target)
+- [x] Rust (cargo test, set-aside, Fixer, demo target)
+- [x] Ruby (minitest + RSpec, set-aside, Fixer, two demo targets)
+- [x] PHP (PHPUnit, set-aside, Fixer, demo target)
+- [x] C# (dotnet test: xUnit/NUnit/MSTest, set-aside, Fixer, demo target)
+- [x] Kotlin (kotlinc + JUnit, set-aside, Fixer, demo target)
 - [ ] JavaScript: jest/vitest projects
-- [ ] Next language: Rust or Ruby (toolchain-gated tests, one at a time)
 - [ ] Android end-to-end proof (needs Android SDK on the machine)
 - [ ] Severity per surviving bug (critical/major/cosmetic)
 

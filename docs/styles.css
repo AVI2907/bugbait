@@ -137,7 +137,12 @@ tbody code, .get p code { background: var(--raise); padding: 1px 7px; border-rad
 #bugtable[data-show="js"] [data-col]:not([data-col="js"]),
 #bugtable[data-show="ts"] [data-col]:not([data-col="ts"]),
 #bugtable[data-show="go"] [data-col]:not([data-col="go"]),
-#bugtable[data-show="java"] [data-col]:not([data-col="java"]) { display: none; }
+#bugtable[data-show="java"] [data-col]:not([data-col="java"]),
+#bugtable[data-show="rust"] [data-col]:not([data-col="rust"]),
+#bugtable[data-show="ruby"] [data-col]:not([data-col="ruby"]),
+#bugtable[data-show="php"] [data-col]:not([data-col="php"]),
+#bugtable[data-show="cs"] [data-col]:not([data-col="cs"]),
+#bugtable[data-show="kt"] [data-col]:not([data-col="kt"]) { display: none; }
 
 /* languages */
 .langlist { list-style: none; margin: 20px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px; }
