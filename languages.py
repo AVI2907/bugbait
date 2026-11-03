@@ -23,8 +23,8 @@ SKIP_DIRS = {
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby"
-    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby" | "php"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby" | "PHP"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -148,6 +148,22 @@ class Ruby(Language):
         return r.returncode == 0
 
 
+class PHP(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.endswith(("Test.php", "_test.php")) or rel.name.startswith("test_")
+                or any(p in ("tests", "test") for p in rel.parts[:-1]))
+
+    def syntax_ok(self, code: str) -> bool:
+        php = shutil.which("php")
+        if not php:
+            return True  # can't check: let the sandbox run be the judge
+        with tempfile.NamedTemporaryFile("w", suffix=".php", delete=True) as f:
+            f.write(code)
+            f.flush()
+            r = subprocess.run([php, "-l", f.name], capture_output=True, timeout=30)
+        return r.returncode == 0
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -188,12 +204,15 @@ RUBY = Ruby(id="ruby", label="Ruby", extensions=(".rb",),
             generated_name="test_bugbait_generated.rb", check_name="test_bugbait_check.rb",
             test_framework="minitest or RSpec",
             test_hint="test_*.rb, *_test.rb, *_spec.rb and test/ or spec/ folders")
+PHP = PHP(id="php", label="PHP", extensions=(".php",),
+          generated_name="BugbaitGeneratedTest.php", check_name="BugbaitCheckTest.php",
+          test_framework="PHPUnit", test_hint="*Test.php files and tests/ folders")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP)
 
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",),
-                RUBY: (".rake", ".gemspec")}
+                RUBY: (".rake", ".gemspec"), PHP: (".phtml",)}
 
 
 def detect(root: Path) -> Language:
@@ -219,5 +238,7 @@ def detect(root: Path) -> Language:
         counts[RUST] += 1
     if (root / "Gemfile").is_file() or (root / "Rakefile").is_file():
         counts[RUBY] += 1
+    if (root / "composer.json").is_file():
+        counts[PHP] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

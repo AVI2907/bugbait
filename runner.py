@@ -20,6 +20,24 @@ def _ignore(directory, names):
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
 
+def parse_phpunit_results(output):
+    """(total, failed, failed_tests) from PHPUnit output."""
+    m = re.search(r"Tests: (\d+), Assertions: \d+(?:, Failures: (\d+))?(?:, Errors: (\d+))?", output)
+    if m:
+        total = int(m.group(1))
+        failed = int(m.group(2) or 0) + int(m.group(3) or 0)
+    else:
+        m = re.search(r"OK \((\d+) tests?,", output)
+        total, failed = (int(m.group(1)), 0) if m else (0, 0)
+    names = re.findall(r"^\d+\) (\S+)", output, re.M)
+    return total, failed, sorted(set(names))
+
+
+def parse_phpunit_roster(output):
+    """Test names from `phpunit --list-tests` output."""
+    return sorted({line.strip()[2:] for line in output.splitlines() if line.startswith(" - ")})
+
+
 def parse_minitest_results(output):
     """(total, failed, failed_tests, passed_tests) from minitest output (needs --verbose for names)."""
     import re
@@ -148,6 +166,17 @@ class Sandbox:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
 
+    def list_phpunit_tests(self, timeout=300):
+        """Test names from `phpunit --list-tests` (for set-aside); [] if it fails."""
+        files = sorted(t.as_posix() for t in self.project.test_files())
+        try:
+            result = subprocess.run([*self.project.phpunit_cmd, "--list-tests", *files],
+                                    cwd=self.path, capture_output=True, text=True,
+                                    timeout=timeout, env=self.project.env(self.path))
+        except (subprocess.SubprocessError, OSError):
+            return []
+        return parse_phpunit_roster(result.stdout + result.stderr)
+
     def run_tests(self, *test_paths, timeout=300, stop_early=True):
         """Run the project's tests in the sandbox (optionally only some test files). Returns (passed, output).
 
@@ -160,6 +189,17 @@ class Sandbox:
                 timeout = 600  # first-time compiles are slow
         if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "php":
+            phpunit = self.project.phpunit_cmd
+            if test_paths:
+                cmd = [*phpunit, *test_paths]
+            else:
+                files = sorted(t.as_posix() for t in self.project.test_files())
+                cmd = [*phpunit, *files]
+                if self.project.included_phpunit_tests:
+                    names = "|".join(re.escape(t).replace("/", r"\/")
+                                     for t in sorted(set(self.project.included_phpunit_tests)))
+                    cmd += ["--filter", f"/^({names})$/"]
         elif self.project.language.id == "ruby":
             if self.project.ruby_framework == "rspec":
                 if test_paths:

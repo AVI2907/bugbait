@@ -76,6 +76,19 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+PHP_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a PHP project and the existing tests did NOT catch it.
+Write a PHPUnit test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Require the code the same way the existing tests do (the test file sits next to them).
+- Write one test class named BugbaitCheckTest with one or two small test methods,
+  using plain assertions (no extra packages). No namespace line.
+- Reply with ONLY one ```php code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 RUST_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Rust project and the existing tests did NOT catch it.
 Write a Rust integration test that FAILS on the buggy code and PASSES on the original code.
 
@@ -131,7 +144,8 @@ def _extract_code(reply, language="Python"):
     code = (block.group(1) if block else reply).strip()
     markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",),
                "Go": ("func Test",), "TypeScript": ("test(", "it("), "Rust": ("#[test]",),
-               "Ruby": ("def test_", 'it "', "it '", "RSpec.describe")}
+               "Ruby": ("def test_", 'it "', "it '", "RSpec.describe"),
+               "PHP": ("function test", "#[Test")}
     if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
@@ -163,11 +177,11 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     language = project.language.label
     fence = {"python": "python", "javascript": "js", "java": "java",
              "go": "go", "typescript": "ts", "rust": "rust",
-             "ruby": "ruby"}[project.language.id]
+             "ruby": "ruby", "php": "php"}[project.language.id]
     system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
               "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT,
               "typescript": TS_SYSTEM_PROMPT, "rust": RUST_SYSTEM_PROMPT,
-              "ruby": RUBY_SYSTEM_PROMPT}[project.language.id]
+              "ruby": RUBY_SYSTEM_PROMPT, "php": PHP_SYSTEM_PROMPT}[project.language.id]
     if project.language.id == "ruby" and project.ruby_framework == "rspec":
         system = RSPEC_SYSTEM_PROMPT
     messages = [

@@ -8,10 +8,11 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# git (clones) + node (JavaScript) + JDK/Maven (Java) + Go + Rust + Ruby.
+# git (clones) + node (JavaScript) + JDK/Maven (Java) + Go + Rust + Ruby + PHP.
 # default-jdk-headless follows the distro default (trixie ships 21; plain "17" doesn't exist there).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git curl ca-certificates nodejs npm default-jdk-headless maven golang cargo rustc rustfmt ruby \
+        php phpunit \
     && rm -rf /var/lib/apt/lists/*
 RUN gem install --no-document minitest rspec
 

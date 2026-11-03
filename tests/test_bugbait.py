@@ -377,6 +377,49 @@ def test_fixer_extracts_ruby_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_php_function(tmp_path):
+    (tmp_path / "calc.php").write_text(
+        "<?php\n\nfunction add($a, $b) {\n    return $a + $b;\n}\n\n"
+        "final class Calc {\n    public function double($n) {\n        return $n * 2;\n    }\n\n"
+        "    public static function triple($n) {\n        return $n * 3;\n    }\n}\n")
+    p = Project(name="ph", root=tmp_path, source="local", language=languages.PHP)
+    assert engine.enclosing_function({"file": "calc.php", "old": "$a + $b"}, p) == "add"
+    assert engine.enclosing_function({"file": "calc.php", "old": "$n * 2"}, p) == "Calc.double"
+    assert engine.enclosing_function({"file": "calc.php", "old": "$n * 3"}, p) == "Calc.triple"
+
+
+def test_build_php_test_file_merges_and_renames(tmp_path):
+    bug1 = {"file": "calc.php", "old": "$a + $b", "new": "$a - $b"}
+    bug2 = {"file": "calc.php", "old": "$age >= 18", "new": "$age > 18"}
+    code1 = ("<?php\n\nuse PHPUnit\\Framework\\TestCase;\n\nrequire_once __DIR__ . \"/../calc.php\";\n\n"
+             "final class CheckTest extends TestCase {\n"
+             "    public function testCheck(): void {\n"
+             "        $this->assertSame(2, add(1, 1));\n    }\n}\n")
+    code2 = ("<?php\n\nuse PHPUnit\\Framework\\TestCase;\n\nrequire_once __DIR__ . \"/../calc.php\";\n\n"
+             "final class CheckTest extends TestCase {\n"
+             "    #[Test]\n    public function acceptsEighteen(): void {\n"
+             "        $this->assertTrue(is_adult(18));\n    }\n}\n")
+    p = Project(name="ph", root=tmp_path, source="local", language=languages.PHP)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert out.count("use PHPUnit\\Framework\\TestCase;") == 1
+    assert out.count('require_once __DIR__ . "/../calc.php";') == 1
+    assert "final class BugbaitGeneratedTest extends TestCase" in out
+    assert "function test_bug1_Check():" in out or "function test_bug1_Check(" in out
+    assert "function test_bug2_acceptsEighteen(" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_fixer_extracts_php_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```php\npublic function testX(): void {}\n```", "PHP")
+    assert reason is None and "function testX" in code
+    code, reason = _extract_code("```php\n#[Test]\npublic function adds(): void {}\n```", "PHP")
+    assert reason is None and "#[Test]" in code
+    _, reason = _extract_code("```php\n$x = 1;\n```", "PHP")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -402,6 +445,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid Rust" in seen["system"] and "```rust" in seen["user"]
     sab.generate_bugs("c.rb", "a", "t", 1, language="Ruby")
     assert "valid Ruby" in seen["system"] and "```ruby" in seen["user"]
+    sab.generate_bugs("c.php", "a", "t", 1, language="PHP")
+    assert "valid PHP" in seen["system"] and "```php" in seen["user"]
 
 
 # ---------- projects ----------

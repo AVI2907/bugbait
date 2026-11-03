@@ -14,6 +14,20 @@ needs_cargo = pytest.mark.skipif(shutil.which("cargo") is None, reason="cargo no
 needs_rustfmt = pytest.mark.skipif(shutil.which("rustfmt") is None, reason="rustfmt not installed")
 needs_ruby = pytest.mark.skipif(shutil.which("ruby") is None, reason="ruby not installed")
 needs_rspec = pytest.mark.skipif(shutil.which("rspec") is None, reason="rspec not installed")
+needs_php = pytest.mark.skipif(shutil.which("php") is None, reason="php not installed")
+needs_phpunit = pytest.mark.skipif(
+    shutil.which("phpunit") is None and shutil.which("phpunit.phar") is None,
+    reason="phpunit not installed")
+
+
+def write_phpunit_project(path, extra=""):
+    (path / "calc.php").write_text("<?php\n\nfunction add($a, $b) {\n    return $a + $b;\n}\n")
+    (path / "tests").mkdir(exist_ok=True)
+    (path / "tests" / "CalcTest.php").write_text(
+        "<?php\n\nuse PHPUnit\\Framework\\TestCase;\n\nrequire_once __DIR__ . \"/../calc.php\";\n\n"
+        "final class CalcTest extends TestCase {\n"
+        "    public function testAdd(): void {\n        $this->assertSame(3, add(1, 2));\n    }\n"
+        + extra + "}\n")
 
 
 def _minitest_available():
@@ -88,6 +102,12 @@ def test_detect_ruby_project(tmp_path):
     (tmp_path / "Gemfile").write_text('source "https://rubygems.org"\n')
     (tmp_path / "calc.rb").write_text("def add(a, b)\n  a + b\nend\n")
     assert languages.detect(tmp_path).id == "ruby"
+
+
+def test_detect_php_project(tmp_path):
+    (tmp_path / "composer.json").write_text('{"name": "x/y"}\n')
+    (tmp_path / "calc.php").write_text("<?php\nfunction add($a, $b) {\n  return $a + $b;\n}\n")
+    assert languages.detect(tmp_path).id == "php"
 
 
 def test_detect_typescript_project(tmp_path):
@@ -853,5 +873,123 @@ def test_rspec_fixer_verify(tmp_path):
             '  it "adds" do\n    expect(add(1, 1)).to eq(2)\n  end\nend\n')
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("expect(add(1, 1)).to eq(2)", "expect(add(0, 0)).to eq(0)")
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def test_php_test_files():
+    php = languages.PHP
+    assert php.is_test_file(Path("CalcTest.php"))
+    assert php.is_test_file(Path("calc_test.php"))
+    assert php.is_test_file(Path("tests/Calc.php"))
+    assert not php.is_test_file(Path("calc.php"))
+
+
+def test_parse_phpunit_results():
+    from runner import parse_phpunit_results
+
+    failing = ("\n1) CalcTest::testBroken\nFailed asserting that 2 is identical to 3.\n\n"
+               "FAILURES!\nTests: 2, Assertions: 2, Failures: 1.\n")
+    assert parse_phpunit_results(failing) == (2, 1, ["CalcTest::testBroken"])
+    assert parse_phpunit_results("OK (3 tests, 5 assertions)\n") == (3, 0, [])
+    assert parse_phpunit_results("OK (1 test, 1 assertion)\n") == (1, 0, [])
+    assert parse_phpunit_results("Tests: 2, Assertions: 1, Errors: 2.\n") == (2, 2, [])
+    assert parse_phpunit_results("No tests executed!\n") == (0, 0, [])
+
+
+def test_parse_phpunit_roster():
+    from runner import parse_phpunit_roster
+
+    output = "Available tests:\n - CalcTest::testAdd\n - CalcTest::testBroken\n"
+    assert parse_phpunit_roster(output) == ["CalcTest::testAdd", "CalcTest::testBroken"]
+
+
+def test_find_phpunit_prefers_project_copy(tmp_path, monkeypatch):
+    from projects import _find_phpunit
+
+    vendor = tmp_path / "vendor" / "bin"
+    vendor.mkdir(parents=True)
+    (vendor / "phpunit").write_text("#!/bin/sh\n")
+    assert _find_phpunit(tmp_path) == [str(vendor / "phpunit")]
+    (vendor / "phpunit").unlink()
+    (tmp_path / "phpunit.phar").write_text("phar")
+    assert _find_phpunit(tmp_path) == ["php", str(tmp_path / "phpunit.phar")]
+    (tmp_path / "phpunit.phar").unlink()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "phpunit").write_text("#!/bin/sh\n")
+    (bindir / "phpunit").chmod(0o755)
+    monkeypatch.setenv("PATH", str(bindir))
+    assert _find_phpunit(tmp_path) == [str(bindir / "phpunit")]
+
+
+@needs_php
+def test_php_syntax_check():
+    assert languages.PHP.syntax_ok("<?php\nfunction add($a, $b) {\n    return $a + $b;\n}\n")
+    assert not languages.PHP.syntax_ok("<?php\nfunction add(\n")
+
+
+def test_php_project_discovers_php_files(tmp_path):
+    (tmp_path / "calc.php").write_text("<?php\nfunction add($a, $b) {\n    return $a + $b;\n}\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "CalcTest.php").write_text("<?php\nclass CalcTest {}\n")
+    p = Project(name="ph", root=tmp_path, source="local", language=languages.PHP)
+    assert [f["path"] for f in p.source_files()] == ["calc.php"]
+    assert [t.as_posix() for t in p.test_files()] == ["tests/CalcTest.php"]
+
+
+@needs_phpunit
+def test_phpunit_baseline_counts_passes(tmp_path):
+    import engine
+
+    write_phpunit_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    assert p.language.id == "php"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_phpunit
+def test_phpunit_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    write_phpunit_project(
+        tmp_path, "    public function testBroken(): void {\n"
+                  "        $this->assertSame(3, add(1, 1));\n    }\n")
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.included_phpunit_tests == ["CalcTest::testAdd"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_phpunit
+def test_phpunit_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    write_phpunit_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("calc.php", "$a + $b", "$a - $b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_phpunit
+def test_phpunit_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    write_phpunit_project(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    bug = {"file": "calc.php", "old": "$a + $b", "new": "$a - $b"}
+    good = ("<?php\n\nuse PHPUnit\\Framework\\TestCase;\n\nrequire_once __DIR__ . \"/../calc.php\";\n\n"
+            "final class BugbaitCheckTest extends TestCase {\n"
+            "    public function testCheck(): void {\n"
+            "        $this->assertSame(2, add(1, 1));\n    }\n}\n")
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("assertSame(2, add(1, 1))", "assertSame(0, add(0, 0))")
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem

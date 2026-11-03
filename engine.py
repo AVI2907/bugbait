@@ -16,7 +16,7 @@ from pathlib import Path
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
 from runner import (Sandbox, parse_cargo_results, parse_go_results, parse_gradle_results,
-                    parse_minitest_results, parse_rspec_results)
+                    parse_minitest_results, parse_phpunit_results, parse_rspec_results)
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -73,6 +73,12 @@ OFFLINE_BUGS = {
         {"file": "calc.rb", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
         {"file": "calc.rb", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
         {"file": "calc.rb", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "phpcalc": [
+        {"file": "calc.php", "old": "$a + $b", "new": "$a - $b", "explanation": "basic arithmetic"},
+        {"file": "calc.php", "old": "$age >= 18", "new": "$age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.php", "old": "$percent > 100", "new": "$percent >= 100",
          "explanation": "boundary at 100"},
     ],
 }
@@ -211,8 +217,30 @@ def enclosing_ruby_function(bug, project):
     return None
 
 
+def enclosing_php_function(bug, project):
+    """Nearest function above a bug; methods as 'Class.method'."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    for i in range(line - 1, -1, -1):
+        m = re.search(r"^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*function\s+&?(\w+)",
+                      lines[i])
+        if not m:
+            continue
+        name = m.group(1)
+        for j in range(i - 1, -1, -1):
+            c = re.search(r"^\s*(?:(?:final|abstract|readonly)\s+)*(?:class|trait|enum)\s+(\w+)",
+                          lines[j])
+            if c:
+                return f"{c.group(1)}.{name}"
+        return name
+    return None
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id == "php":
+        return enclosing_php_function(bug, project)
     if project.language.id == "ruby":
         return enclosing_ruby_function(bug, project)
     if project.language.id == "rust":
@@ -278,7 +306,7 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby or Java "
+            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby, PHP or Java "
                     "project, that's why — more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
@@ -323,6 +351,36 @@ def _go_readable(output, limit=3000):
         if event.get("Action") == "output" and event.get("Output"):
             texts.append(event["Output"])
     return ("".join(texts).strip() or output)[-limit:]
+
+
+def phpunit_baseline(project, emit):
+    """Baseline for PHPUnit projects (roster from --list-tests, set-aside via --filter)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_t = parse_phpunit_results(output)
+        roster = sb.list_phpunit_tests() if (failed or not passed) and total else []
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed or not passed:
+        passing = [t for t in roster if t not in set(failed_t)]
+        if not passing:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.included_phpunit_tests = passing
+        set_aside = failed
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _ = parse_phpunit_results(output)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
 
 
 def _minitest_total(project):
@@ -449,6 +507,8 @@ def baseline(project, emit):
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "php":
+        return phpunit_baseline(project, emit)
     if project.language.id == "ruby":
         if project.ruby_framework == "rspec":
             return rspec_baseline(project, emit)
@@ -700,9 +760,56 @@ def _build_rspec_file(accepted):
     return head + ("\n".join(requires) + "\n\n" if requires else "") + "\n\n\n".join(bodies) + "\n"
 
 
+def _php_test_methods(code):
+    """Extract (attrs, name, text) of each test method (test* or #[Test]), matched by braces."""
+    out = []
+    pattern = (r"(?m)^((?:\s*#\[[^\]]*\]\s*)*)\s*((?:public\s+)?function\s+(\w+)\s*\([^)]*\)"
+               r"\s*(?::\s*[^{\s]+)?\s*\{)")
+    for m in re.finditer(pattern, code):
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), m.group(3), code[m.start():i + 1]))
+                    break
+    return out
+
+
+def _build_php_test_file(accepted):
+    uses, requires, declares, bodies = [], [], [], []
+    for i, bug, code in accepted:
+        for line in code.splitlines():
+            s = line.strip()
+            if re.match(r"^(require|include)(_once)?\b", s) and s not in requires:
+                requires.append(s)
+            elif s.startswith("use ") and s not in uses:
+                uses.append(s)
+            elif s.startswith("declare(") and s not in declares:
+                declares.append(s)
+        for attrs, name, method in _php_test_methods(code):
+            if not (name.startswith("test") or "Test" in attrs):
+                continue
+            rest = name[4:] if name.lower().startswith("test") else name
+            renamed = method.replace(f"function {name}(", f"function test_bug{i}_{rest}(", 1)
+            header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            bodies.append(f"    {header}\n{renamed}")  # methods keep the indent they were verified with
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n"
+    parts = ["<?php", head.rstrip()]
+    parts += declares + uses + requires
+    if not any("TestCase" in u for u in uses):
+        parts.append("use PHPUnit\\Framework\\TestCase;")
+    parts.append("\nfinal class BugbaitGeneratedTest extends TestCase {\n" + "\n\n".join(bodies) + "\n}\n")
+    return "\n".join(parts)
+
+
 def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     language = project.language
+    if language.id == "php":
+        return _build_php_test_file(accepted)
     if language.id == "ruby":
         if project.ruby_framework == "rspec":
             return _build_rspec_file(accepted)

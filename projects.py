@@ -54,6 +54,8 @@ class Project:
     ruby_framework: str = "minitest"  # "minitest" | "rspec"
     included_minitest_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
     rspec_locations: list = field(default_factory=list)  # passing file:line (baseline set-aside)
+    phpunit_cmd: list = field(default_factory=list)  # e.g. ["vendor/bin/phpunit"] or ["phpunit"]
+    included_phpunit_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
     go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
@@ -346,6 +348,23 @@ def _finish_gradle(project, log):
     return project
 
 
+def _find_phpunit(root):
+    """PHPUnit command: project copy first, then PATH. None when missing everywhere."""
+    vendor = root / "vendor" / "bin" / "phpunit"
+    if vendor.is_file():
+        return [str(vendor)]
+    phar = root / "phpunit.phar"
+    if phar.is_file():
+        return ["php", str(phar)]
+    path = shutil.which("phpunit")
+    if path:
+        return [path]
+    path = shutil.which("phpunit.phar")
+    if path:
+        return ["php", path]
+    return None
+
+
 def _node_strips_types(node):
     """True if this Node runs .ts files without flags (22.18+, 23.6+, or 24+)."""
     try:
@@ -397,6 +416,18 @@ def _finish(project, log):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "php":
+        php = shutil.which("php")
+        if not php:
+            raise ProjectError("This is a PHP project, but PHP isn't installed. "
+                               "Install PHP 8.1+ and try again.")
+        find = _find_phpunit(project.root)
+        if not find:
+            raise ProjectError("PHPUnit wasn't found. Install it with "
+                               "`composer require --dev phpunit/phpunit`, or download phpunit.phar "
+                               "and put it on your PATH.")
+        project.phpunit_cmd = find
+        return project  # composer dependencies are the project's own business
     if project.language.id == "ruby":
         ruby = shutil.which("ruby")
         if not ruby:
