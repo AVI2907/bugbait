@@ -63,12 +63,13 @@ def test_merge_imports_combines_and_dedupes():
     assert engine.merge_imports(lines) == ["import os", "from x import b, a", "from y import c"]
 
 
-def test_build_test_file_renames_and_merges():
+def test_build_test_file_renames_and_merges(tmp_path):
     bug1 = {"file": "calc.py", "old": "a + b", "new": "a - b"}
     bug2 = {"file": "calc.py", "old": "age >= 18", "new": "age > 18"}
     code1 = "from calc import add\n\n\ndef test_add():\n    assert add(1, 1) == 2\n"
     code2 = "from calc import is_adult\n\n\ndef test_adult():\n    assert is_adult(18)\n"
-    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], languages.PYTHON)
+    p = Project(name="x", root=tmp_path, source="local")
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
     assert "def test_bug1_add():" in out
     assert "def test_bug2_adult():" in out
     assert out.count("from calc import") == 1
@@ -158,11 +159,12 @@ def test_baseline_without_tests_explains_itself(tmp_path):
     assert "No Python test files" in data["output"]
 
 
-def test_build_js_test_file_renames_and_merges():
+def test_build_js_test_file_renames_and_merges(tmp_path):
     bug1 = {"file": "calc.js", "old": "a + b", "new": "a - b"}
     code1 = ("const test = require('node:test');\nconst assert = require('node:assert');\n"
              "const { add } = require('./calc.js');\ntest('adds', () => assert.equal(add(1, 1), 2));\n")
-    out = engine.build_test_file([(1, bug1, code1)], languages.JAVASCRIPT)
+    p = Project(name="x", root=tmp_path, source="local", language=languages.JAVASCRIPT)
+    out = engine.build_test_file([(1, bug1, code1)], p)
     assert "test('bug1: adds'" in out
     assert out.count("require('node:test')") == 1
     assert out.startswith("// Tests written by the BugBait Fixer")
@@ -195,11 +197,12 @@ def test_enclosing_java_function(tmp_path):
     assert engine.enclosing_function({"file": "Calc.java", "old": "a + b"}, p) == "Calc.add"
 
 
-def test_build_java_test_file_merges_methods():
+def test_build_java_test_file_merges_methods(tmp_path):
     bug1 = {"file": "Calc.java", "old": "a + b", "new": "a - b"}
     code1 = ("package calc;\nimport org.junit.jupiter.api.Test;\nimport static org.junit.jupiter.api.Assertions.*;\n"
              "@Test\npublic void adds() {\n    assertEquals(5, Calc.add(2, 3));\n}\n")
-    out = engine.build_test_file([(1, bug1, code1)], languages.JAVA)
+    p = Project(name="x", root=tmp_path, source="local", language=languages.JAVA)
+    out = engine.build_test_file([(1, bug1, code1)], p)
     assert "package calc;" in out
     assert out.count("import org.junit.jupiter.api.Test;") == 1
     assert "public class BugbaitGeneratedTest" in out
@@ -212,6 +215,41 @@ def test_fixer_extracts_java_test():
     code, reason = _extract_code("```java\nimport org.junit.jupiter.api.Test;\n@Test\nvoid x() {}\n```", "Java")
     assert reason is None and "@Test" in code
     _, reason = _extract_code("```java\nclass X {}\n```", "Java")
+    assert reason == "model did not return a test function"
+
+
+def test_enclosing_go_function(tmp_path):
+    (tmp_path / "calc.go").write_text(
+        "package calc\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n\n"
+        "func (c *Calc) total() int {\n\treturn c.n * 2\n}\n")
+    p = Project(name="g", root=tmp_path, source="local", language=languages.GO)
+    assert engine.enclosing_function({"file": "calc.go", "old": "a + b"}, p) == "Add"
+    assert engine.enclosing_function({"file": "calc.go", "old": "c.n * 2"}, p) == "Calc.total"
+
+
+def test_build_go_test_file_merges_and_renames(tmp_path):
+    (tmp_path / "calc_test.go").write_text("package calc\n")
+    bug1 = {"file": "calc.go", "old": "a + b", "new": "a - b"}
+    bug2 = {"file": "calc.go", "old": "age >= 18", "new": "age > 18"}
+    code1 = ('package calc\n\nimport "testing"\n\n'
+             'func TestBugbaitCheck(t *testing.T) {\n\tif Add(1, 1) != 2 {\n\t\tt.Fail()\n\t}\n}\n')
+    code2 = ('package calc\n\nimport (\n\t"testing"\n)\n\n'
+             'func TestBugbaitCheck(t *testing.T) {\n\tif !IsAdult(18) {\n\t\tt.Fail()\n\t}\n}\n')
+    p = Project(name="g", root=tmp_path, source="local", language=languages.GO)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert "package calc" in out
+    assert out.count('"testing"') == 1
+    assert "func TestBug1BugbaitCheck(t *testing.T)" in out
+    assert "func TestBug2BugbaitCheck(t *testing.T)" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_fixer_extracts_go_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```go\npackage calc\nfunc TestBugbaitCheck(t *testing.T) {}\n```", "Go")
+    assert reason is None and "func TestBugbaitCheck" in code
+    _, reason = _extract_code("```go\npackage calc\nfunc helper() {}\n```", "Go")
     assert reason == "model did not return a test function"
 
 
@@ -232,6 +270,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid Java" in seen["system"] and "```java" in seen["user"]
     sab.generate_bugs("c.py", "a", "t", 1)
     assert "valid Python" in seen["system"] and "```python" in seen["user"]
+    sab.generate_bugs("c.go", "a", "t", 1, language="Go")
+    assert "valid Go" in seen["system"] and "```go" in seen["user"]
 
 
 # ---------- projects ----------

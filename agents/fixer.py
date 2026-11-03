@@ -49,6 +49,19 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+GO_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Go project and the existing tests did NOT catch it.
+Write a Go test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Start with the same `package` line the existing tests use, then the needed imports.
+- Write exactly one test function named TestBugbaitCheck (func TestBugbaitCheck(t *testing.T)).
+- Use plain testing assertions (t.Errorf / t.Fatalf); no external assert libraries.
+- Reply with ONLY one ```go code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 
 def _check_path(project):
     d = project.test_dir()
@@ -61,7 +74,8 @@ def _extract_code(reply, language="Python"):
         return None, reply.strip().split(":", 1)[-1].strip()
     block = re.search(r"```(?:\w+)?\s*(.*?)```", reply, re.DOTALL)
     code = (block.group(1) if block else reply).strip()
-    markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",)}
+    markers = {"Python": ("def test_",), "JavaScript": ("test(", "it("), "Java": ("@Test",),
+               "Go": ("func Test",)}
     if not any(m in code for m in markers.get(language, ("test",))):
         return None, "model did not return a test function"
     return code + "\n", None
@@ -91,16 +105,17 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     Returns a dict: {"status": "fixed" | "skipped" | "failed", "test_code", "reason", "attempts"}
     """
     language = project.language.label
-    fence = {"python": "python", "javascript": "js", "java": "java"}[project.language.id]
+    fence = {"python": "python", "javascript": "js", "java": "java",
+             "go": "go"}[project.language.id]
     system = {"python": SYSTEM_PROMPT, "javascript": JS_SYSTEM_PROMPT,
-              "java": JAVA_SYSTEM_PROMPT}[project.language.id]
+              "java": JAVA_SYSTEM_PROMPT, "go": GO_SYSTEM_PROMPT}[project.language.id]
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": (
-            f"### Original `{bug['file']}`\n```python\n{source}\n```\n\n"
-            f"### Planted bug\nReplaced:\n```python\n{bug['old']}\n```\nwith:\n```python\n{bug['new']}\n```\n"
+            f"### Original `{bug['file']}`\n```{fence}\n{source}\n```\n\n"
+            f"### Planted bug\nReplaced:\n```{fence}\n{bug['old']}\n```\nwith:\n```{fence}\n{bug['new']}\n```\n"
             f"Saboteur's note: {bug.get('explanation', '')}\n\n"
-            f"### Existing tests (they missed it)\n```python\n{tests}\n```"
+            f"### Existing tests (they missed it)\n```{fence}\n{tests}\n```"
         )},
     ]
     problem = None

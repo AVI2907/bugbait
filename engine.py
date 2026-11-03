@@ -15,7 +15,7 @@ from pathlib import Path
 
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
-from runner import Sandbox, parse_gradle_results
+from runner import Sandbox, parse_go_results, parse_gradle_results
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -42,6 +42,12 @@ OFFLINE_BUGS = {
         {"file": "src/main/java/calc/Calc.java", "old": "age >= 18", "new": "age > 18",
          "explanation": "boundary at 18"},
         {"file": "src/main/java/calc/Calc.java", "old": "percent > 100", "new": "percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "gocalc": [
+        {"file": "calc.go", "old": "a + b", "new": "a - b", "explanation": "basic arithmetic"},
+        {"file": "calc.go", "old": "age >= 18", "new": "age > 18", "explanation": "boundary at 18"},
+        {"file": "calc.go", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
 }
@@ -125,8 +131,23 @@ def enclosing_java_function(bug, project):
     return func
 
 
+def enclosing_go_function(bug, project):
+    """Nearest func above a bug; methods as 'Type.Method'."""
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    for i in range(line - 1, -1, -1):
+        m = re.search(r"^\s*func\s+(?:\(\s*\w+\s+[*]?(\w+)\s*\)\s*)?(\w+)\s*[(\[<]", lines[i])
+        if m:
+            recv, name = m.group(1), m.group(2)
+            return f"{recv}.{name}" if recv else name
+    return None
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id == "go":
+        return enclosing_go_function(bug, project)
     if project.language.id == "javascript":
         return enclosing_js_function(bug, project)
     if project.language.id == "java":
@@ -184,7 +205,7 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += " If this isn't a Python, JavaScript or Java project, that's why — more languages are coming."
+            msg += " If this isn't a Python, JavaScript, Go or Java project, that's why — more languages are coming."
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -217,12 +238,59 @@ def gradle_baseline(project, emit):
     return total
 
 
+def _go_readable(output, limit=3000):
+    """Human-readable text from `go test -json` output (the Output payloads, in order)."""
+    texts = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("Action") == "output" and event.get("Output"):
+            texts.append(event["Output"])
+    return ("".join(texts).strip() or output)[-limit:]
+
+
+def go_baseline(project, emit):
+    """Baseline for Go projects, measured from `go test -json` (plain output has no counts)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_t, passed_t = parse_go_results(output)
+    set_aside = 0
+    if not passed and total == 0:
+        emit("baseline", passed=False, tests=0, output=_go_readable(output))
+        return None
+    if total == 0:
+        emit("baseline", passed=False, tests=0, output=no_tests_message(project))
+        return None
+    if failed_t:
+        if not passed_t:
+            emit("baseline", passed=False, tests=0,
+                 output=(f"All {total} tests already fail without any planted bugs:\n"
+                         + _go_readable(output, 2500)))
+            return None
+        project.included_go_tests = passed_t
+        set_aside = len(failed_t)
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _, _ = parse_go_results(output)
+        if not passed or failed:
+            emit("baseline", passed=False, tests=0, output=_go_readable(output))
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
+
+
 def baseline(project, emit):
     """Run the project's own tests. Tests that already fail are set aside so they don't hide results.
 
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "go":
+        return go_baseline(project, emit)
     if project.language.id == "java" and project.build == "gradle":
         return gradle_baseline(project, emit)
     with Sandbox(project) as sb:
@@ -318,12 +386,69 @@ def run_bugs(project, bugs, workers, extra_tests=None, on_result=None):
     return results
 
 
-def build_test_file(accepted, language):
+def _go_test_funcs(code):
+    """Extract (name, text) of each top-level Test func, matched by braces."""
+    out = []
+    for m in re.finditer(r"(?m)^func\s+(Test\w*)\s*\([^)]*\)\s*\{", code):
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), code[m.start():i + 1]))
+                    break
+    return out
+
+
+def _go_package(project):
+    """Package line for generated tests: the package of the tests they sit next to."""
+    d = project.root / project.test_dir()
+    for pattern in ("*_test.go", "*.go"):
+        for path in sorted(d.glob(pattern)):
+            try:
+                text = path.read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+            m = re.search(r"(?m)^package\s+(\w+)", text)
+            if m:
+                return m.group(1)
+    return "main"
+
+
+def _build_go_test_file(accepted, project):
+    imports, bodies = [], []
+    for i, bug, code in accepted:
+        for block in re.findall(r"(?ms)^import\s*\(\s*(.*?)^\)", code):
+            for line in block.splitlines():
+                s = line.strip()
+                if s and not s.startswith("//") and s not in imports:
+                    imports.append(s)
+        for line in code.splitlines():
+            s = line.strip()
+            if s.startswith("import ") and '"' in s and "(" not in s:
+                s = s[len("import "):].strip()  # single-line form -> block entry
+                if s not in imports:
+                    imports.append(s)
+        for name, func in _go_test_funcs(code):
+            renamed = func.replace(f"func {name}(", f"func TestBug{i}{name[4:]}(", 1)
+            header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            bodies.append(f"{header}\n{renamed}")
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n\n"
+    import_block = ("import (\n" + "\n".join(f"\t{l}" for l in imports) + "\n)\n\n") if imports else ""
+    return f"{head}package {_go_package(project)}\n\n{import_block}" + "\n\n".join(bodies) + "\n"
+
+
+def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
+    language = project.language
     if language.id == "javascript":
         return _build_js_test_file(accepted)
     if language.id == "java":
         return _build_java_test_file(accepted)
+    if language.id == "go":
+        return _build_go_test_file(accepted, project)
     imports, bodies = [], []
     for i, bug, code in accepted:
         body = []
@@ -657,7 +782,7 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
 
         accepted = [(b["id"], b, b["fix"]["test_code"]) for b in survivors if b["fix"]["status"] == "fixed"]
         if accepted:
-            test_file = build_test_file(accepted, project.language)
+            test_file = build_test_file(accepted, project)
             out_dir = ROOT / "generated_tests" / project.name
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / project.language.generated_name).write_text(test_file)

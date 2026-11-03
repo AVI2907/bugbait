@@ -19,6 +19,27 @@ def _ignore(directory, names):
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
 
+def parse_go_results(output):
+    """(total, failed, failed_tests, passed_tests) from `go test -json` output (top-level tests)."""
+    import json
+    verdicts = {}
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("Action") not in ("pass", "fail"):
+            continue
+        test = event.get("Test", "")
+        if not test or "/" in test:
+            continue  # package lines and subtests: the top-level test carries the verdict
+        if verdicts.get(test) != "fail":
+            verdicts[test] = event["Action"]
+    failed = sorted(t for t, v in verdicts.items() if v == "fail")
+    passed = sorted(t for t, v in verdicts.items() if v == "pass")
+    return len(verdicts), len(failed), failed, passed
+
+
 def parse_gradle_results(root):
     """(total, failed, failed_classes, passed_classes) from JUnit XML under build/test-results."""
     import xml.etree.ElementTree as ET
@@ -82,6 +103,20 @@ class Sandbox:
             timeout = 900  # Maven builds (and first-run downloads) are slow
         if self.project.language.id == "javascript":
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "go":
+            cmd = ["go", "test", "-count=1"]  # -count=1: never serve cached results for mutated code
+            if test_paths:
+                p = Path(test_paths[0])
+                pkg = "." if p.parent.as_posix() in (".", "") else "./" + p.parent.as_posix()
+                check_stem = Path(self.project.language.check_name).stem
+                # The Fixer always names its check test TestBugbaitCheck; merged tests are TestBug*.
+                cmd += ["-run", "^TestBugbaitCheck$" if p.stem == check_stem else "^TestBug", pkg]
+            else:
+                if stop_early:
+                    cmd += ["-failfast"]
+                if self.project.included_go_tests:
+                    cmd += ["-run", "^(%s)$" % "|".join(sorted(set(self.project.included_go_tests)))]
+                cmd += ["-json", "./..."]
         elif self.project.language.id == "java" and self.project.build == "gradle":
             for d in self.path.glob("**/build/test-results"):
                 shutil.rmtree(d, ignore_errors=True)  # stale results would corrupt parsing

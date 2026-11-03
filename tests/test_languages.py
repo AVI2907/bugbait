@@ -9,6 +9,16 @@ import languages
 from projects import Project, resolve
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+needs_go = pytest.mark.skipif(shutil.which("go") is None, reason="go not installed")
+
+
+def write_go_module(path, extra_test=""):
+    (path / "go.mod").write_text("module goproj\n\ngo 1.21\n")
+    (path / "calc.go").write_text(
+        "package goproj\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n")
+    (path / "calc_test.go").write_text(
+        "package goproj\n\nimport \"testing\"\n\n"
+        "func TestAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fail()\n\t}\n}\n" + extra_test)
 
 
 def test_detect_python_example():
@@ -346,3 +356,109 @@ def test_javascript_sandbox_run(tmp_path):
         sb.apply_mutation("calc.js", "a + b", "a - b")
         passed, _ = sb.run_tests()
         assert not passed
+
+
+def test_detect_go_project(tmp_path):
+    (tmp_path / "go.mod").write_text("module x\n")
+    (tmp_path / "calc.go").write_text("package x\n")
+    assert languages.detect(tmp_path).id == "go"
+
+
+def test_go_test_files():
+    go = languages.GO
+    assert go.is_test_file(Path("calc_test.go"))
+    assert go.is_test_file(Path("sub/calc_test.go"))
+    assert not go.is_test_file(Path("calc.go"))
+
+
+def test_parse_go_results():
+    from runner import parse_go_results
+
+    output = (
+        '{"Action":"run","Package":"p","Test":"TestAdd"}\n'
+        '{"Action":"pass","Package":"p","Test":"TestAdd","Elapsed":0}\n'
+        '{"Action":"run","Package":"p","Test":"TestSub"}\n'
+        '{"Action":"pass","Package":"p","Test":"TestSub/inner","Elapsed":0}\n'
+        '{"Action":"pass","Package":"p","Test":"TestSub","Elapsed":0}\n'
+        '{"Action":"fail","Package":"p","Test":"TestBroken","Elapsed":0}\n'
+        '{"Action":"fail","Package":"p","Elapsed":0.1}\n'
+        'not json\n')
+    assert parse_go_results(output) == (3, 1, ["TestBroken"], ["TestAdd", "TestSub"])
+    assert parse_go_results("garbage\n") == (0, 0, [], [])
+
+
+def test_go_readable_extracts_payloads():
+    import engine
+
+    output = ('{"Action":"output","Package":"p","Output":"calc.go:3: boom\\n"}\n'
+              '{"Action":"fail","Package":"p"}\n')
+    assert engine._go_readable(output) == "calc.go:3: boom"
+    assert engine._go_readable("plain text") == "plain text"
+
+
+@needs_go
+def test_go_syntax_check():
+    assert languages.GO.syntax_ok("package p\n\nfunc f() int {\n\treturn 1\n}\n")
+    assert not languages.GO.syntax_ok("package p\n\nfunc f( {\n")
+
+
+def test_go_project_discovers_go_files(tmp_path):
+    (tmp_path / "calc.go").write_text("package x\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n")
+    (tmp_path / "calc_test.go").write_text("package x\n")
+    (tmp_path / "ignore.py").write_text("x = 1\n")
+    p = Project(name="g", root=tmp_path, source="local", language=languages.GO)
+    assert [f["path"] for f in p.source_files()] == ["calc.go"]
+    assert [t.as_posix() for t in p.test_files()] == ["calc_test.go"]
+
+
+@needs_go
+def test_go_baseline_counts_passes(tmp_path):
+    import engine
+
+    write_go_module(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    assert p.language.id == "go"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+
+
+@needs_go
+def test_go_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    write_go_module(tmp_path, '\nfunc TestBroken(t *testing.T) {\n\tt.Error("boom")\n}\n')
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 1
+    assert p.included_go_tests == ["TestAdd"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_go
+def test_go_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    write_go_module(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("calc.go", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_go
+def test_go_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    write_go_module(tmp_path)
+    p = resolve(str(tmp_path), log=lambda m: None)
+    bug = {"file": "calc.go", "old": "a + b", "new": "a - b"}
+    good = ('package goproj\n\nimport "testing"\n\n'
+            'func TestBugbaitCheck(t *testing.T) {\n\tif Add(1, 1) != 2 {\n\t\tt.Fail()\n\t}\n}\n')
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("Add(1, 1) != 2", "Add(0, 0) != 0")  # 0 passes under both + and -
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem

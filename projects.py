@@ -49,6 +49,8 @@ class Project:
     gradle_cmd: list = field(default_factory=list)  # e.g. ["./gradlew"] or ["gradle"]
     gradle_tasks: list = field(default_factory=list)  # e.g. ["test"] or ["testDebugUnitTest"]
     included_gradle_tests: list = field(default_factory=list)  # passing classes (baseline set-aside)
+    included_go_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
+    go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
     pytest_args: list = field(default_factory=list)  # e.g. --deselect for tests that already fail
@@ -141,6 +143,7 @@ class Project:
         if self.java_home:
             env["JAVA_HOME"] = self.java_home
             env["PATH"] = str(Path(self.java_home) / "bin") + os.pathsep + env.get("PATH", "")
+        env.update(self.go_extra_env)
         return env
 
 
@@ -335,6 +338,33 @@ def _finish_gradle(project, log):
     return project
 
 
+def _writable_go_env():
+    """GOCACHE/GOPATH overrides when Go's defaults aren't writable (sandboxes, read-only HOME)."""
+    out = {}
+    try:
+        found = subprocess.run(["go", "env", "GOCACHE", "GOPATH"],
+                               capture_output=True, text=True, timeout=30)
+        values = found.stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return out
+    for var, val in zip(("GOCACHE", "GOPATH"), values):
+        if var in os.environ or not val:
+            continue
+        try:
+            Path(val).mkdir(parents=True, exist_ok=True)
+            probe = Path(val) / ".bugbait-write-test"
+            probe.write_text("x")
+            probe.unlink()
+        except OSError:
+            fallback = Path(tempfile.gettempdir()) / ("bugbait-" + var.lower())
+            try:
+                fallback.mkdir(parents=True, exist_ok=True)
+                out[var] = str(fallback)
+            except OSError:
+                pass
+    return out
+
+
 def _finish(project, log):
     project.language = detect(project.root)
     if project.language.id == "javascript":
@@ -342,6 +372,15 @@ def _finish(project, log):
             raise ProjectError("This is a JavaScript project, but Node.js isn't installed. "
                                "Install Node.js 18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "go":
+        if not shutil.which("go"):
+            raise ProjectError("This is a Go project, but Go isn't installed. "
+                               "Install Go (https://go.dev/dl/) and try again.")
+        if not (project.root / "go.mod").is_file():
+            raise ProjectError("No go.mod found. BugBait needs a Go module to test Go code "
+                               "(run `go mod init <name>` in the project).")
+        project.go_extra_env = _writable_go_env()
+        return project  # go test manages its own dependencies
     if project.language.id == "java":
         if (project.root / "pom.xml").is_file():
             if not shutil.which("mvn"):

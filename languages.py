@@ -79,6 +79,24 @@ class Java(Language):
         return True
 
 
+class Go(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return rel.name.endswith("_test.go")
+
+    def syntax_ok(self, code: str) -> bool:
+        gofmt = shutil.which("gofmt")
+        if not gofmt and shutil.which("go"):
+            sib = Path(shutil.which("go")).parent / "gofmt"
+            gofmt = str(sib) if sib.is_file() else None
+        if not gofmt:
+            return True  # can't check: let the sandbox run be the judge
+        with tempfile.NamedTemporaryFile("w", suffix=".go", delete=True) as f:
+            f.write(code)
+            f.flush()
+            r = subprocess.run([gofmt, "-e", f.name], capture_output=True, timeout=30)
+        return r.returncode == 0
+
+
 PYTHON = Python(id="python", label="Python", extensions=(".py",),
                 generated_name="test_bugbait_generated.py", check_name="test_bugbait_check.py",
                 test_framework="pytest", test_hint="test_*.py, *_test.py and tests/ folders")
@@ -88,8 +106,11 @@ JAVASCRIPT = JavaScript(id="javascript", label="JavaScript", extensions=(".js", 
 JAVA = Java(id="java", label="Java", extensions=(".java",),
             generated_name="BugbaitGeneratedTest.java", check_name="BugbaitCheckTest.java",
             test_framework="mvn test", test_hint="*Test.java files under src/test/")
+GO = Go(id="go", label="Go", extensions=(".go",),
+        generated_name="bugbait_generated_test.go", check_name="bugbait_check_test.go",
+        test_framework="go test", test_hint="*_test.go files")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO)
 
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx", ".ts", ".tsx"), JAVA: (".kt", ".kts", ".scala")}
@@ -110,5 +131,7 @@ def detect(root: Path) -> Language:
         counts[JAVA] += 1
     if (root / "build.gradle").is_file() or (root / "build.gradle.kts").is_file():
         counts[JAVA] += 1
+    if (root / "go.mod").is_file():
+        counts[GO] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON
