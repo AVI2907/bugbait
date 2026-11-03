@@ -20,6 +20,16 @@ def _ignore(directory, names):
             if n in SKIP_DIRS or n.endswith((".pyc", ".egg-info")) or n == ".DS_Store"]
 
 
+def parse_dotnet_results(output):
+    """(total, failed, failed_tests) from `dotnet test` output (all frameworks summed)."""
+    total = failed = 0
+    for m in re.finditer(r"(?:Passed!|Failed!)\s+- Failed:\s*(\d+), Passed:\s*(\d+)", output):
+        failed += int(m.group(1))
+        total += int(m.group(1)) + int(m.group(2))
+    names = re.findall(r"^  Failed ([A-Za-z_][\w.]*)\s*\[", output, re.M)
+    return total, failed, sorted(set(names))
+
+
 def parse_phpunit_results(output):
     """(total, failed, failed_tests) from PHPUnit output."""
     m = re.search(r"Tests: (\d+), Assertions: \d+(?:, Failures: (\d+))?(?:, Errors: (\d+))?", output)
@@ -185,10 +195,20 @@ class Sandbox:
         if timeout == 300:
             if self.project.language.id == "java":
                 timeout = 900  # Maven builds (and first-run downloads) are slow
-            elif self.project.language.id == "rust":
+            elif self.project.language.id in ("rust", "csharp"):
                 timeout = 600  # first-time compiles are slow
         if self.project.language.id in ("javascript", "typescript"):
             cmd = ["node", "--test", *test_paths]
+        elif self.project.language.id == "csharp":
+            cmd = ["dotnet", "test", self.project.dotnet_target]
+            if test_paths:
+                stem = Path(test_paths[0]).stem
+                check_stem = Path(self.project.language.check_name).stem
+                want = "BugbaitCheck" if stem == check_stem else "BugbaitGenerated"
+                cmd += ["--filter", f"FullyQualifiedName~{want}"]
+            elif self.project.excluded_dotnet_tests:
+                cmd += ["--filter", "&".join(f"FullyQualifiedName!={t}"
+                                             for t in sorted(set(self.project.excluded_dotnet_tests)))]
         elif self.project.language.id == "php":
             phpunit = self.project.phpunit_cmd
             if test_paths:

@@ -420,6 +420,44 @@ def test_fixer_extracts_php_test():
     assert reason == "model did not return a test function"
 
 
+def test_enclosing_csharp_function(tmp_path):
+    (tmp_path / "Calc.cs").write_text(
+        "public static class Calc\n{\n"
+        "    public static int Add(int a, int b) => a + b;\n}\n\n"
+        "public class Counter\n{\n    private int n;\n"
+        "    public int Doubled => n * 2;\n"
+        "    public int Next() { return n + 1; }\n}\n")
+    p = Project(name="cs", root=tmp_path, source="local", language=languages.CSHARP)
+    assert engine.enclosing_function({"file": "Calc.cs", "old": "a + b"}, p) == "Calc.Add"
+    assert engine.enclosing_function({"file": "Calc.cs", "old": "n * 2"}, p) == "Counter.Doubled"
+    assert engine.enclosing_function({"file": "Calc.cs", "old": "n + 1"}, p) == "Counter.Next"
+
+
+def test_build_csharp_test_file_merges_and_renames(tmp_path):
+    bug1 = {"file": "Calc.cs", "old": "a + b", "new": "a - b"}
+    bug2 = {"file": "Calc.cs", "old": "age >= 18", "new": "age > 18"}
+    code1 = ("using CalcLib;\n\nnamespace CalcLib.Tests;\n\npublic class BugbaitCheck\n{\n"
+             "    [Fact]\n    public void Check() => Assert.Equal(2, Calc.Add(1, 1));\n}\n")
+    code2 = ("using CalcLib;\n\nnamespace CalcLib.Tests;\n\npublic class BugbaitCheck\n{\n"
+             "    [Fact]\n    public void Check()\n    {\n        Assert.True(Calc.IsAdult(18));\n    }\n}\n")
+    p = Project(name="cs", root=tmp_path, source="local", language=languages.CSHARP)
+    out = engine.build_test_file([(1, bug1, code1), (2, bug2, code2)], p)
+    assert out.count("using CalcLib;") == 1
+    assert "public class BugbaitGenerated" in out
+    assert "public void Bug1_Check()" in out
+    assert "public void Bug2_Check()" in out
+    assert "Catches bug 1" in out and "Catches bug 2" in out
+
+
+def test_fixer_extracts_csharp_test():
+    from agents.fixer import _extract_code
+
+    code, reason = _extract_code("```csharp\n[Fact]\npublic void X() {}\n```", "C#")
+    assert reason is None and "[Fact]" in code
+    _, reason = _extract_code("```csharp\npublic class X {}\n```", "C#")
+    assert reason == "model did not return a test function"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 
@@ -447,6 +485,8 @@ def test_saboteur_uses_language_fence(monkeypatch):
     assert "valid Ruby" in seen["system"] and "```ruby" in seen["user"]
     sab.generate_bugs("c.php", "a", "t", 1, language="PHP")
     assert "valid PHP" in seen["system"] and "```php" in seen["user"]
+    sab.generate_bugs("C.cs", "a", "t", 1, language="C#")
+    assert "valid C#" in seen["system"] and "```csharp" in seen["user"]
 
 
 # ---------- projects ----------

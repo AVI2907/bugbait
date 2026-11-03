@@ -15,8 +15,9 @@ from pathlib import Path
 
 from llm import model_for
 from projects import ROOT, Project, ProjectError, resolve
-from runner import (Sandbox, parse_cargo_results, parse_go_results, parse_gradle_results,
-                    parse_minitest_results, parse_phpunit_results, parse_rspec_results)
+from runner import (Sandbox, parse_cargo_results, parse_dotnet_results, parse_go_results,
+                    parse_gradle_results, parse_minitest_results, parse_phpunit_results,
+                    parse_rspec_results)
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -79,6 +80,14 @@ OFFLINE_BUGS = {
         {"file": "calc.php", "old": "$a + $b", "new": "$a - $b", "explanation": "basic arithmetic"},
         {"file": "calc.php", "old": "$age >= 18", "new": "$age > 18", "explanation": "boundary at 18"},
         {"file": "calc.php", "old": "$percent > 100", "new": "$percent >= 100",
+         "explanation": "boundary at 100"},
+    ],
+    "csharpcalc": [
+        {"file": "src/CalcLib/Calc.cs", "old": "a + b", "new": "a - b",
+         "explanation": "basic arithmetic"},
+        {"file": "src/CalcLib/Calc.cs", "old": "age >= 18", "new": "age > 18",
+         "explanation": "boundary at 18"},
+        {"file": "src/CalcLib/Calc.cs", "old": "percent > 100", "new": "percent >= 100",
          "explanation": "boundary at 100"},
     ],
 }
@@ -237,8 +246,39 @@ def enclosing_php_function(bug, project):
     return None
 
 
+def enclosing_csharp_function(bug, project):
+    """Nearest method (or property) above a bug, as 'Class.method'."""
+    skip = {"if", "for", "foreach", "while", "using", "lock", "switch", "catch", "fixed", "new",
+            "return", "get", "set", "add", "remove"}
+    code = (project.root / bug["file"]).read_text()
+    line = code[: code.index(bug["old"])].count("\n") + 1
+    lines = code.splitlines()
+    for i in range(line - 1, -1, -1):
+        m = re.search(r"^\s*(?:[\w\s<>\[\],\?]+?)\s+(\w+)\s*\([^;]*\)\s*(?:=>|{|$)", lines[i])
+        name = None
+        if m and m.group(1) not in skip:
+            name = m.group(1)
+        else:
+            pm = re.search(r"^\s*(?:(?:public|private|protected|internal|static|virtual|override|sealed"
+                           r"|abstract|readonly|required|init)\s+)*[\w<>\[\]?,\s]+\s+(\w+)"
+                           r"\s*(?:\{\s*(?:get\b|set\b)|=>)", lines[i])
+            if pm and pm.group(1) not in skip:
+                name = pm.group(1)
+        if not name:
+            continue
+        for j in range(i - 1, -1, -1):
+            c = re.search(r"^\s*(?:(?:public|private|protected|internal|static|sealed|abstract|partial"
+                          r"|readonly|ref)\s+)*(?:class|struct|record|interface)\s+(\w+)", lines[j])
+            if c:
+                return f"{c.group(1)}.{name}"
+        return name
+    return None
+
+
 def enclosing_function(bug, project):
     """Name of the function or method a bug was planted in (e.g. 'Parser.parse'), or None."""
+    if project.language.id == "csharp":
+        return enclosing_csharp_function(bug, project)
     if project.language.id == "php":
         return enclosing_php_function(bug, project)
     if project.language.id == "ruby":
@@ -306,8 +346,8 @@ def no_tests_message(project):
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
         if not project.code_files():
-            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby, PHP or Java "
-                    "project, that's why — more languages are coming.")
+            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby, PHP, C# or "
+                    "Java project, that's why — more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -351,6 +391,34 @@ def _go_readable(output, limit=3000):
         if event.get("Action") == "output" and event.get("Output"):
             texts.append(event["Output"])
     return ("".join(texts).strip() or output)[-limit:]
+
+
+def dotnet_baseline(project, emit):
+    """Baseline for .NET projects (failing tests excluded via --filter)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_t = parse_dotnet_results(output)
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed_t or not passed:
+        if not failed_t:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.excluded_dotnet_tests = failed_t
+        set_aside = len(failed_t)
+        emit("setup", message=f"{set_aside} tests already fail without any planted bugs. "
+                              f"BugBait will set them aside.")
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _ = parse_dotnet_results(output)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
 
 
 def phpunit_baseline(project, emit):
@@ -507,6 +575,8 @@ def baseline(project, emit):
     Returns the number of passing tests, or None if the project can't be tested.
     """
     project.pytest_args = []
+    if project.language.id == "csharp":
+        return dotnet_baseline(project, emit)
     if project.language.id == "php":
         return phpunit_baseline(project, emit)
     if project.language.id == "ruby":
@@ -805,9 +875,51 @@ def _build_php_test_file(accepted):
     return "\n".join(parts)
 
 
+def _csharp_test_methods(code):
+    """Extract (attrs, name, text) of each [Fact]/[Test]/[TestMethod] method."""
+    out = []
+    pattern = (r"(?m)^((?:\s*\[[^\]]*\]\s*)*)\s*public\s+(?:async\s+)?(?:void|Task)\s+(\w+)"
+               r"\s*\([^)]*\)\s*(\{|=>)")
+    for m in re.finditer(pattern, code):
+        if m.group(3) == "=>":
+            end = code.index(";", m.end()) + 1
+            out.append((m.group(1), m.group(2), code[m.start():end]))
+            continue
+        depth = 0
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append((m.group(1), m.group(2), code[m.start():i + 1]))
+                    break
+    return out
+
+
+def _build_csharp_test_file(accepted):
+    usings, bodies = [], []
+    for i, bug, code in accepted:
+        for line in code.splitlines():
+            s = line.strip()
+            if s.startswith("using ") and s.endswith(";") and s not in usings:
+                usings.append(s)
+        for attrs, name, method in _csharp_test_methods(code):
+            if not any(k in attrs for k in ("Fact", "Test", "Theory")):
+                continue
+            renamed = re.sub(rf"\b{name}\s*\(", f"Bug{i}_{name}(", method, count=1)
+            header = f"// Catches bug {i}: {bug['file']}: {bug['old'].strip()} -> {bug['new'].strip()}"
+            bodies.append(f"    {header}\n{renamed}")
+    head = "// Tests written by the BugBait Fixer agent. Each one was verified to catch a real bug.\n"
+    return (head + ("\n".join(usings) + "\n\n" if usings else "")
+            + "public class BugbaitGenerated\n{\n" + "\n\n".join(bodies) + "\n}\n")
+
+
 def build_test_file(accepted, project):
     """Merge verified tests into one file, renaming tests so they can't collide."""
     language = project.language
+    if language.id == "csharp":
+        return _build_csharp_test_file(accepted)
     if language.id == "php":
         return _build_php_test_file(accepted)
     if language.id == "ruby":

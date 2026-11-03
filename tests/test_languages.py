@@ -20,6 +20,23 @@ needs_phpunit = pytest.mark.skipif(
     reason="phpunit not installed")
 
 
+def _dotnet_runs():
+    import socket
+
+    if shutil.which("dotnet") is None:
+        return False
+    try:  # vstest needs loopback sockets, which some sandboxes deny
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        sock.close()
+        return True
+    except OSError:
+        return False
+
+
+needs_dotnet_runs = pytest.mark.skipif(not _dotnet_runs(), reason="dotnet test needs sockets")
+
+
 def write_phpunit_project(path, extra=""):
     (path / "calc.php").write_text("<?php\n\nfunction add($a, $b) {\n    return $a + $b;\n}\n")
     (path / "tests").mkdir(exist_ok=True)
@@ -108,6 +125,12 @@ def test_detect_php_project(tmp_path):
     (tmp_path / "composer.json").write_text('{"name": "x/y"}\n')
     (tmp_path / "calc.php").write_text("<?php\nfunction add($a, $b) {\n  return $a + $b;\n}\n")
     assert languages.detect(tmp_path).id == "php"
+
+
+def test_detect_csharp_project(tmp_path):
+    (tmp_path / "app.sln").write_text("sln\n")
+    (tmp_path / "Calc.cs").write_text("public static class Calc {}\n")
+    assert languages.detect(tmp_path).id == "csharp"
 
 
 def test_detect_typescript_project(tmp_path):
@@ -991,5 +1014,107 @@ def test_phpunit_fixer_verify(tmp_path):
             "        $this->assertSame(2, add(1, 1));\n    }\n}\n")
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("assertSame(2, add(1, 1))", "assertSame(0, add(0, 0))")
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def _copy_csharp_demo(path):
+    import shutil as _shutil
+
+    demo = Path(__file__).resolve().parent.parent / "targets" / "csharpcalc"
+    for src in [demo / "csharpcalc.sln",
+                demo / "src" / "CalcLib" / "CalcLib.csproj",
+                demo / "src" / "CalcLib" / "Calc.cs",
+                demo / "tests" / "CalcLib.Tests" / "CalcLib.Tests.csproj",
+                demo / "tests" / "CalcLib.Tests" / "CalcTests.cs"]:
+        dest = path / src.relative_to(demo)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _shutil.copy(src, dest)
+    return path
+
+
+def test_csharp_test_files():
+    cs = languages.CSHARP
+    assert cs.is_test_file(Path("CalcTests.cs"))
+    assert cs.is_test_file(Path("CalcTest.cs"))
+    assert cs.is_test_file(Path("tests/Calc.cs"))
+    assert not cs.is_test_file(Path("Calc.cs"))
+
+
+def test_dotnet_target_selection(tmp_path):
+    from projects import _dotnet_target
+
+    assert _dotnet_target(tmp_path) == ""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Lib.csproj").write_text("<Project/>\n")
+    assert _dotnet_target(tmp_path) == "src/Lib.csproj"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "Lib.Tests.csproj").write_text("<Project/>\n")
+    assert _dotnet_target(tmp_path) == "tests/Lib.Tests.csproj"
+    (tmp_path / "app.sln").write_text("sln\n")
+    assert _dotnet_target(tmp_path) == "app.sln"
+
+
+def test_parse_dotnet_results():
+    from runner import parse_dotnet_results
+
+    failing = ("  Failed CalcLib.Tests.CalcTests.Broken [4 ms]\n"
+               "Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 5 ms\n")
+    assert parse_dotnet_results(failing) == (4, 1, ["CalcLib.Tests.CalcTests.Broken"])
+    assert parse_dotnet_results("Passed!  - Failed: 0, Passed: 4, Skipped: 0, Total: 4\n") == (4, 0, [])
+    assert parse_dotnet_results("Build FAILED.\n") == (0, 0, [])
+
+
+@needs_dotnet_runs
+def test_dotnet_baseline_counts_passes(tmp_path):
+    import engine
+
+    p = resolve(str(_copy_csharp_demo(tmp_path)), log=lambda m: None)
+    assert p.language.id == "csharp" and p.dotnet_target == "csharpcalc.sln"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 3
+
+
+@needs_dotnet_runs
+def test_dotnet_baseline_sets_aside_failing(tmp_path):
+    import engine
+
+    _copy_csharp_demo(tmp_path)
+    broken = tmp_path / "tests" / "CalcLib.Tests" / "CalcTests.cs"
+    text = broken.read_text().rstrip()
+    assert text.endswith("}")
+    broken.write_text(text[:-1] + "    [Fact]\n"
+                      "    public void Broken() => Assert.Equal(3, Calc.Add(1, 1));\n}\n")
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 3
+    assert p.excluded_dotnet_tests == ["CalcLib.Tests.CalcTests.Broken"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_dotnet_runs
+def test_dotnet_sandbox_run(tmp_path):
+    from runner import Sandbox
+
+    p = resolve(str(_copy_csharp_demo(tmp_path)), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("src/CalcLib/Calc.cs", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_dotnet_runs
+def test_dotnet_fixer_verify(tmp_path):
+    from agents.fixer import verify_test
+
+    p = resolve(str(_copy_csharp_demo(tmp_path)), log=lambda m: None)
+    bug = {"file": "src/CalcLib/Calc.cs", "old": "a + b", "new": "a - b"}
+    good = ("using CalcLib;\n\nnamespace CalcLib.Tests;\n\npublic class BugbaitCheck\n{\n"
+            "    [Fact]\n    public void Check() => Assert.Equal(2, Calc.Add(1, 1));\n}\n")
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("Assert.Equal(2, Calc.Add(1, 1))", "Assert.Equal(0, Calc.Add(0, 0))")
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem

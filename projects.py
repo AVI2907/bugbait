@@ -56,6 +56,9 @@ class Project:
     rspec_locations: list = field(default_factory=list)  # passing file:line (baseline set-aside)
     phpunit_cmd: list = field(default_factory=list)  # e.g. ["vendor/bin/phpunit"] or ["phpunit"]
     included_phpunit_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
+    dotnet_target: str = ""  # .sln or test .csproj that `dotnet test` runs
+    excluded_dotnet_tests: list = field(default_factory=list)  # failing tests (baseline set-aside)
+    dotnet_extra_env: dict = field(default_factory=dict)  # NUGET_PACKAGES fallback (restricted HOME)
     go_extra_env: dict = field(default_factory=dict)  # GOCACHE/GOPATH fallbacks (restricted HOME)
     python: str = sys.executable
     pythonpath: list = field(default_factory=list)   # relative paths to put first on sys.path
@@ -154,6 +157,7 @@ class Project:
             env["JAVA_HOME"] = self.java_home
             env["PATH"] = str(Path(self.java_home) / "bin") + os.pathsep + env.get("PATH", "")
         env.update(self.go_extra_env)
+        env.update(self.dotnet_extra_env)
         return env
 
 
@@ -348,6 +352,40 @@ def _finish_gradle(project, log):
     return project
 
 
+def _dotnet_target(root):
+    """What `dotnet test` should run: the solution, else the test project, else any project."""
+    slns = sorted(root.glob("*.sln"))
+    if slns:
+        return slns[0].name
+    projects = sorted(p.relative_to(root) for p in root.rglob("*.csproj"))
+    tests = [p for p in projects if "test" in p.stem.lower()]
+    if tests:
+        return tests[0].as_posix()
+    if projects:
+        return projects[0].as_posix()
+    return ""
+
+
+def _writable_dotnet_env():
+    """NUGET_PACKAGES override when the default cache isn't writable (sandboxes, read-only HOME)."""
+    if "NUGET_PACKAGES" in os.environ:
+        return {}
+    try:
+        default = Path.home() / ".nuget" / "packages"
+        default.mkdir(parents=True, exist_ok=True)
+        probe = default / ".bugbait-write-test"
+        probe.write_text("x")
+        probe.unlink()
+        return {}
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "bugbait-nuget"
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+            return {"NUGET_PACKAGES": str(fallback)}
+        except OSError:
+            return {}
+
+
 def _find_phpunit(root):
     """PHPUnit command: project copy first, then PATH. None when missing everywhere."""
     vendor = root / "vendor" / "bin" / "phpunit"
@@ -416,6 +454,17 @@ def _finish(project, log):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
         return project  # node --test needs no environment setup
+    if project.language.id == "csharp":
+        if not shutil.which("dotnet"):
+            raise ProjectError("This is a C# project, but the .NET SDK isn't installed. "
+                               "Install it (https://dotnet.microsoft.com/download) and try again.")
+        target = _dotnet_target(project.root)
+        if not target:
+            raise ProjectError("No .sln or .csproj found. BugBait needs a .NET solution or project "
+                               "to test C# code.")
+        project.dotnet_target = target
+        project.dotnet_extra_env = _writable_dotnet_env()
+        return project  # dotnet restores its own packages
     if project.language.id == "php":
         php = shutil.which("php")
         if not php:

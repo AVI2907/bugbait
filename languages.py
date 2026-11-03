@@ -23,8 +23,8 @@ SKIP_DIRS = {
 
 @dataclass(frozen=True)
 class Language:
-    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby" | "php"
-    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby" | "PHP"
+    id: str               # "python" | "javascript" | "java" | "go" | "typescript" | "rust" | "ruby" | "php" | "csharp"
+    label: str            # "Python" | "JavaScript" | "Java" | "Go" | "TypeScript" | "Rust" | "Ruby" | "PHP" | "C#"
     extensions: tuple     # source file extensions, e.g. (".py",)
     generated_name: str   # merged Fixer output, e.g. "test_bugbait_generated.py"
     check_name: str       # single-candidate check file the Fixer verifies
@@ -164,6 +164,17 @@ class PHP(Language):
         return r.returncode == 0
 
 
+class CSharp(Language):
+    def is_test_file(self, rel: Path) -> bool:
+        return (rel.name.startswith("Test") or rel.name.endswith(("Test.cs", "Tests.cs"))
+                or any(p in ("tests", "test") for p in rel.parts[:-1]))
+
+    def syntax_ok(self, code: str) -> bool:
+        # No lightweight C# parser on the CLI, so every bug goes to the sandbox:
+        # builds that break count as caught (a known over-count).
+        return True
+
+
 class Go(Language):
     def is_test_file(self, rel: Path) -> bool:
         return rel.name.endswith("_test.go")
@@ -207,8 +218,11 @@ RUBY = Ruby(id="ruby", label="Ruby", extensions=(".rb",),
 PHP = PHP(id="php", label="PHP", extensions=(".php",),
           generated_name="BugbaitGeneratedTest.php", check_name="BugbaitCheckTest.php",
           test_framework="PHPUnit", test_hint="*Test.php files and tests/ folders")
+CSHARP = CSharp(id="csharp", label="C#", extensions=(".cs",),
+                generated_name="BugbaitGeneratedTest.cs", check_name="BugbaitCheckTest.cs",
+                test_framework="dotnet test", test_hint="*Test.cs files and tests/ folders")
 
-ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP)
+ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP, CSHARP)
 
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",),
@@ -240,5 +254,7 @@ def detect(root: Path) -> Language:
         counts[RUBY] += 1
     if (root / "composer.json").is_file():
         counts[PHP] += 1
+    if any(root.glob("*.sln")) or any(root.glob("*.csproj")):
+        counts[CSHARP] += 1
     best = max(ALL, key=lambda lang: counts[lang])
     return best if counts[best] else PYTHON

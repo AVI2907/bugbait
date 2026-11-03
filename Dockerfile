@@ -15,6 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         php phpunit \
     && rm -rf /var/lib/apt/lists/*
 RUN gem install --no-document minitest rspec
+# .NET SDK (C#) from Microsoft's feed (Debian 13 / trixie).
+RUN curl -sSL -o /tmp/ms-prod.deb \
+        https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb \
+    && dpkg -i /tmp/ms-prod.deb && rm /tmp/ms-prod.deb \
+    && apt-get update && apt-get install -y --no-install-recommends dotnet-sdk-9.0 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
