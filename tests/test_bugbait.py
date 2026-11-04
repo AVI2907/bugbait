@@ -621,6 +621,16 @@ def test_test_dir_and_defaults(calc):
     assert not calc.is_test_file(__import__("pathlib").Path("calc.py"))
 
 
+def test_default_files_prefers_tested_code(tmp_path):
+    big = "\n".join(f"VALUE_{i} = {i}" for i in range(60)) + "\n"
+    small = "def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n"
+    (tmp_path / "big.py").write_text(big)
+    (tmp_path / "small.py").write_text(small)
+    (tmp_path / "test_small.py").write_text("from small import add\n\ndef test_add():\n    assert add(1, 2) == 3\n")
+    p = Project(name="cov", root=tmp_path, source="local")
+    assert p.default_files(limit=2) == ["small.py", "big.py"]
+
+
 def test_relevant_tests_mentions_module_first(calc):
     text = calc.relevant_tests("calc.py")
     assert "test_calc.py" in text

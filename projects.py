@@ -110,8 +110,22 @@ class Project:
         return out
 
     def default_files(self, limit=3):
-        """If the user didn't choose, attack the biggest few files that aren't huge."""
-        files = sorted(self.source_files(), key=lambda f: f["lines"], reverse=True)
+        """If the user didn't choose: files with tests first (catches possible), then biggest."""
+        mentions = {}
+        for t in self.test_files():
+            try:
+                mentions[t] = (self.root / t).read_text()
+            except (UnicodeDecodeError, OSError):
+                continue
+
+        def covered(f):
+            stem = Path(f["path"]).stem
+            if stem == "__init__":
+                stem = Path(f["path"]).parent.name
+            return any(stem in t.name or re.search(rf"\b{re.escape(stem)}\b", text)
+                       for t, text in mentions.items())
+
+        files = sorted(self.source_files(), key=lambda f: (covered(f), f["lines"]), reverse=True)
         fitting = [f for f in files if f["lines"] <= 1500] or files
         return [f["path"] for f in fitting[:limit]]
 
