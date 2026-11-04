@@ -9,7 +9,7 @@ Usage:
     python main.py ~/code/app --list-files            # show the files BugBait could attack
     python main.py inflection --no-fix                # only measure, don't run the Fixer agent
     python main.py calculator --offline               # built-in bugs, no API key needed
-    python main.py inflection --json                  # machine-readable events (used by VS Code)
+    python main.py inflection --json                  # machine-readable events, one JSON object per line
     python main.py . --staged --no-fix                # only test files with staged git changes
     python main.py . --fail-under 70                  # exit 1 unless 70%+ of bugs are caught
     python main.py --install-hook ~/code/my-project   # block weak commits automatically

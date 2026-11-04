@@ -1,7 +1,7 @@
 """BugBait engine: the full Saboteur -> run -> Fixer -> rescore pipeline.
 
 Progress is reported through an `emit(event, **data)` callback, so the same engine drives
-the terminal (main.py), the web dashboard (app.py) and the VS Code extension (main.py --json).
+the terminal (main.py) and the web dashboard (app.py).
 """
 
 import ast

@@ -65,14 +65,14 @@ Point BugBait at a **GitHub repo** (`owner/repo`), a **local folder**, or a **bu
 
 ## 🏗️ Architecture
 
-Three interfaces, one engine. Every run flows through the same pipeline no matter where you start it:
+Two interfaces, one engine. Every run flows through the same pipeline no matter where you start it:
 
 ```
-┌─────────────┐  ┌─────────────┐  ┌──────────────┐
-│  Dashboard  │  │     CLI     │  │   VS Code    │
-│ Flask + JS  │  │  main.py    │  │  extension   │
-└──────┬──────┘  └──────┬──────┘  └──────┬───────┘
-       └────────────────┼───────────────┘
+        ┌─────────────┐  ┌─────────────┐
+        │  Dashboard  │  │     CLI     │
+        │ Flask + JS  │  │  main.py    │
+        └──────┬──────┘  └──────┬──────┘
+               └────────┼───────┘
                         ▼
               ┌────────────────────┐
               │       Engine       │  baseline → bugs → run → fix → rescore
@@ -91,7 +91,7 @@ Three interfaces, one engine. Every run flows through the same pipeline no matte
 
 | Layer | What it does |
 |---|---|
-| **Interfaces** | Flask dashboard (point-and-click + score history), CLI (scripting, `--staged`, `--fail-under`, pre-commit hook), VS Code extension (talks to the CLI over `--json`, underlines surviving bugs). |
+| **Interfaces** | Flask dashboard (point-and-click + score history) and CLI (scripting, `--staged`, `--fail-under`, pre-commit hook, machine-readable `--json`). |
 | **Engine** | Owns the pipeline: measures the baseline, fans bugs out across workers, rescores after the Fixer, and writes one JSON report per run. |
 | **Agents** | Saboteur and Fixer call Muse Spark through a provider layer (`llm.py`) — Meta Model API by default, swappable per agent to Baseten or any OpenAI-compatible endpoint. |
 | **Sandbox runner** | Copies the project to a temp folder per bug, runs the native test command for the detected language (pytest, `node --test`, `go test`, Maven/Gradle, cargo, RSpec/minitest, PHPUnit, `dotnet test`, kotlinc+JUnit), parses results. Nothing touches your files. |
@@ -99,7 +99,7 @@ Three interfaces, one engine. Every run flows through the same pipeline no matte
 
 ## 🧰 Built with
 
-**Core** — Python 3.10+, Flask, pytest · **AI** — Meta Muse Spark (Meta Model API), Baseten + custom OpenAI-compatible providers · **Packaging** — Docker, GitHub Action (`action.yml`), VSIX extension · **Test runners driven** — pytest, node:test, go test, Maven, Gradle, cargo, RSpec, minitest, PHPUnit, dotnet, kotlinc + JUnit · **Site** — hand-written HTML/CSS on GitHub Pages.
+**Core** — Python 3.10+, Flask, pytest · **AI** — Meta Muse Spark (Meta Model API), Baseten + custom OpenAI-compatible providers · **Packaging** — Docker, GitHub Action (`action.yml`) · **Test runners driven** — pytest, node:test, go test, Maven, Gradle, cargo, RSpec, minitest, PHPUnit, dotnet, kotlinc + JUnit · **Site** — hand-written HTML/CSS on GitHub Pages.
 
 ## 🚀 Quick start
 
@@ -122,11 +122,9 @@ python main.py . --fail-under 70                   # exit 1 unless 70%+ caught
 python main.py --install-hook ~/code/my-project   # block weak commits
 ```
 
-**🧩 VS Code** — open the folder, press **F5**, click **BugBait** in the status bar. Surviving bugs get underlined in your editor; one click adds the tests or opens a PR.
-
 ## 🤖 Gates & pull requests
 
-Add `GITHUB_TOKEN` to `.env`, then **Open pull request** from the dashboard or VS Code. Can't push to the repo? BugBait forks first — strangers never get surprise PRs.
+Add `GITHUB_TOKEN` to `.env`, then **Open pull request** from the dashboard (`python github_pr.py <project>` on the CLI). Can't push to the repo? BugBait forks first — strangers never get surprise PRs.
 
 Score every PR automatically:
 
@@ -139,6 +137,10 @@ Score every PR automatically:
 
 The report lands as an in-place PR comment (updated, never spammed). **Options → Score history** compares any two runs side by side.
 
+## 🔮 Future work
+
+A **VS Code extension** (surviving bugs underlined in your editor, one-click runs) is on the roadmap — see [ROADMAP.md](ROADMAP.md) for the full plan.
+
 <details>
 <summary><strong>🧱 Project layout</strong></summary>
 
@@ -148,9 +150,8 @@ The report lands as an in-place PR comment (updated, never spammed). **Options �
 | `languages.py` | Language plugins: file patterns, test detection, syntax checks |
 | `agents/` | The Saboteur and Fixer agents |
 | `projects.py`, `runner.py` | Project loading, Python environments, throwaway sandboxes |
-| `app.py`, `main.py` | Dashboard and CLI (`--json` feeds VS Code) |
+| `app.py`, `main.py` | Dashboard and CLI (`--json` prints machine-readable events) |
 | `github_pr.py`, `pr_comment.py`, `action.yml`, `precommit.py` | PRs, PR comments, GitHub Action, pre-commit hook |
-| `vscode-extension/` | VS Code extension |
 | `tests/`, `targets/` | Unit tests (`python -m pytest tests/`) and example projects |
 
 </details>

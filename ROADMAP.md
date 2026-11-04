@@ -10,7 +10,7 @@ Working top-down. Checked = built.
 
 ## Phase 2 — Test report card
 - [ ] Instant no-AI analysis: zero-assertion tests, duplicates, sleeps, mock-everything
-- [ ] Show alongside the mutation score in dashboard, CLI and VS Code
+- [ ] Show alongside the mutation score in dashboard and CLI
 
 ## Phase 3 — GitHub Action + PR comments
 - [ ] Action that runs BugBait and comments the score + weakest spots on PRs
@@ -39,7 +39,7 @@ Working top-down. Checked = built.
 
 ## Phase 6 — Deeper experience
 - [ ] Watch mode (`--watch`, live dashboard updates)
-- [ ] VS Code: CodeLens, gutter icons, hover cards
+- [ ] VS Code extension (editor integration: surviving bugs underlined, gutter icons, hover cards, one-click runs)
 - [ ] Shareable HTML report + sample gallery
 - [ ] `bugbait.toml` config file + SARIF output
 

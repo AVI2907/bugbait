@@ -6,7 +6,5 @@ __pycache__/
 .pytest_cache/
 results/
 workspace/
-vscode-extension/media/_events.json
-*.vsix
 
 target/
