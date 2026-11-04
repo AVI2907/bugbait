@@ -164,3 +164,48 @@ def test_history_lists_runs_newest_first(client, tmp_path, monkeypatch):
     assert hist[1]["tests_added"] == 1
     assert hist[1]["after"] == {"caught": 3, "total": 4}
     assert hist[0]["after"] == {"caught": 2, "total": 2}  # no fixer run: after == before
+
+
+# ---------- hosted demo mode ----------
+
+def test_hosted_safe_spec():
+    from projects import is_hosted_safe_spec
+
+    assert is_hosted_safe_spec("calculator")
+    assert is_hosted_safe_spec("https://github.com/owner/repo")
+    assert is_hosted_safe_spec("owner/repo")
+    assert not is_hosted_safe_spec("/etc")
+    assert not is_hosted_safe_spec("~/code/proj")
+    assert not is_hosted_safe_spec("../bugbait")
+    assert not is_hosted_safe_spec("")
+
+
+def test_run_forwards_visitor_key_without_touching_env(client, monkeypatch):
+    import os
+
+    import engine
+
+    seen = {}
+    monkeypatch.setattr(engine, "run", lambda *a, **k: seen.update(k) or {})
+    monkeypatch.delenv("META_API_KEY", raising=False)
+    body = client.get("/api/run?project=calculator&bugs=1&key=visitor-key").get_data(as_text=True)
+    assert "event: end" in body
+    assert seen.get("api_key") == "visitor-key"
+    assert "META_API_KEY" not in os.environ  # never in env: untrusted project code could read it
+
+
+def test_hosted_blocks_local_paths_and_picker(client, monkeypatch):
+    monkeypatch.setattr(app, "HOSTED", True)
+    assert client.post("/api/choose-folder").status_code == 400
+    assert client.post("/api/github/connect", json={"token": "x"}).status_code == 400
+    assert client.post("/api/github/use-cli").status_code == 400
+    body = client.get("/api/load?project=/etc").get_data(as_text=True)
+    assert "public GitHub repos only" in body
+    body = client.get("/api/run?project=/etc").get_data(as_text=True)
+    assert "public GitHub repos only" in body
+
+
+def test_version_reports_hosted_flag(client, monkeypatch):
+    monkeypatch.setattr(app, "HOSTED", True)
+    v = client.get("/api/version").get_json()
+    assert v["hosted"] is True and "has_server_key" in v

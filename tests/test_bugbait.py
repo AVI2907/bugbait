@@ -499,6 +499,46 @@ def test_fixer_extracts_kotlin_test():
     assert reason == "model did not return a test function"
 
 
+def test_chat_prefers_explicit_key(monkeypatch):
+    import llm
+
+    seen = {}
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "hi"}}]}
+
+    def fake_post(url, headers=None, **kw):
+        seen["auth"] = headers["Authorization"]
+        return Resp()
+
+    monkeypatch.setattr(llm.requests, "post", fake_post)
+    monkeypatch.setenv("META_API_KEY", "env-key")
+    assert llm.chat([{"role": "user", "content": "x"}], api_key="visitor-key") == "hi"
+    assert seen["auth"] == "Bearer visitor-key"
+
+
+def test_agents_forward_api_key(monkeypatch, tmp_path):
+    import agents.fixer as fix
+    import agents.saboteur as sab
+
+    seen = {}
+
+    def fake_chat(*a, **k):
+        seen[k.get("agent")] = k.get("api_key")
+        return "[]"
+
+    monkeypatch.setattr(sab, "chat", fake_chat)
+    monkeypatch.setattr(fix, "chat", fake_chat)
+    assert sab.generate_bugs("c.py", "a", "t", 1, api_key="k1") == []
+    assert seen["saboteur"] == "k1"
+    proj = Project(name="x", root=tmp_path, source="local", language=languages.PYTHON)
+    out = fix.write_test(proj, {"file": "c.py", "old": "a", "new": "b"}, "a", "t", api_key="k2")
+    assert seen["fixer"] == "k2" and out["status"] == "failed"
+
+
 def test_saboteur_uses_language_fence(monkeypatch):
     import agents.saboteur as sab
 

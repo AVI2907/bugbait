@@ -1,0 +1,14 @@
+# One-click hosted demo: https://render.com/deploy?repo=https://github.com/AVI2907/bugbait
+# Free tier works (sleeps when idle; first visit wakes it in ~1 min).
+services:
+  - type: web
+    name: bugbait
+    runtime: docker
+    plan: free
+    # Single worker: the engine runs one project at a time by design (run_lock).
+    dockerCommand: gunicorn --workers 1 --threads 4 --timeout 900 --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: BUGBAIT_HOSTED
+        value: "1"
+      - key: META_API_KEY
+        sync: false # optional: set it in Render to sponsor visitors' runs with your key

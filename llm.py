@@ -45,12 +45,15 @@ def _providers():
     }
 
 
-def provider_for(agent):
+def provider_for(agent, api_key=None):
     name = os.getenv(f"{agent.upper()}_PROVIDER", "meta").strip().lower()
     providers = _providers()
     if name not in providers:
         raise LLMError(f"Unknown {agent.upper()}_PROVIDER '{name}'. Use one of: {', '.join(providers)}.")
-    return name, providers[name]
+    provider = dict(providers[name])
+    if api_key:
+        provider["key"] = api_key  # explicit key (e.g. a hosted visitor's) wins over the environment
+    return name, provider
 
 
 def model_for(agent):
@@ -69,9 +72,9 @@ class LLMError(RuntimeError):
     pass
 
 
-def chat(messages, agent="saboteur", model=None, temperature=0.7, timeout=180):
+def chat(messages, agent="saboteur", model=None, temperature=0.7, timeout=180, api_key=None):
     """Send a chat request for one agent ("saboteur" or "fixer") and return the reply text."""
-    name, p = provider_for(agent)
+    name, p = provider_for(agent, api_key=api_key)
     if not p["key"] or p["key"] == "your_key_here":
         raise LLMError(f"{p['key_name']} is not set. Put your key in BugBait's .env file.")
     if not p["base"] or not (model or p["model"]):

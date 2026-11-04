@@ -19,7 +19,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 import engine
-from projects import ROOT, ProjectError, list_examples, resolve
+from projects import ROOT, ProjectError, is_hosted_safe_spec, list_examples, resolve
 
 
 def _app_version():
@@ -36,6 +36,12 @@ APP_VERSION = _app_version()
 app = Flask(__name__, static_folder="static")
 run_lock = threading.Lock()
 loaded = {}   # spec -> Project, so a project is only downloaded / set up once per session
+
+# Hosted demo mode (BUGBAIT_HOSTED=1): strangers share this server, so visitors bring
+# their own model key (passed straight to the model API, never stored, never in the
+# environment where untrusted project code could read it). Local folders and GitHub
+# connect are disabled.
+HOSTED = os.environ.get("BUGBAIT_HOSTED", "") == "1"
 
 
 def sse(event, data):
@@ -90,7 +96,8 @@ def examples():
 
 @app.get("/api/version")
 def version():
-    return jsonify({"version": APP_VERSION})
+    return jsonify({"version": APP_VERSION, "hosted": HOSTED,
+                    "has_server_key": bool(os.environ.get("META_API_KEY"))})
 
 
 @app.get("/api/history")
@@ -188,6 +195,8 @@ def pick_folder_tk():
 @app.post("/api/choose-folder")
 def choose_folder():
     """Open the operating system's folder picker (the server runs on the user's own computer)."""
+    if HOSTED:
+        return jsonify({"error": "The hosted demo can't see your computer. Paste a public GitHub repo link instead."}), 400
     try:
         if platform.system() == "Darwin":
             try:
@@ -221,6 +230,8 @@ def github_status():
 
 @app.post("/api/github/connect")
 def github_connect():
+    if HOSTED:
+        return jsonify({"error": "The hosted demo takes public repos only, so no GitHub login is needed."}), 400
     from github_pr import PRError, save_token, verify_token
     data = request.get_json(silent=True) or {}
     token = (data.get("token") or "").strip()
@@ -256,6 +267,8 @@ def github_repos():
 @app.post("/api/github/use-cli")
 def github_use_cli():
     """Connect using the machine's gh CLI login instead of a pasted token."""
+    if HOSTED:
+        return jsonify({"error": "The hosted demo takes public repos only, so no GitHub login is needed."}), 400
     from github_pr import PRError, gh_cli_token, save_token, verify_token
     token = gh_cli_token()
     if not token:
@@ -273,6 +286,10 @@ def load_project():
     """Download / set up a project and list the files that can be attacked."""
     spec = request.args.get("project", "").strip()
     refresh = request.args.get("refresh") == "1"
+    if HOSTED and not is_hosted_safe_spec(spec):
+        def blocked(emit):
+            emit("error", message="The hosted demo takes built-in examples and public GitHub repos only.")
+        return stream_job(blocked)
     if not run_lock.acquire(blocking=False):
         return busy_response()
 
@@ -297,12 +314,18 @@ def run_live():
     files = [f for f in request.args.get("files", "").split(",") if f] or None
     bugs = max(1, min(int(request.args.get("bugs", 5)), 15))
     fix = request.args.get("fix", "1") == "1"
+    key = request.args.get("key", "")
+    if HOSTED and not is_hosted_safe_spec(spec):
+        def blocked(emit):
+            emit("error", message="The hosted demo takes built-in examples and public GitHub repos only.")
+        return stream_job(blocked)
     if not run_lock.acquire(blocking=False):
         return busy_response()
 
     def job(emit):
         try:
-            engine.run(loaded.get(spec, spec), emit, files=files, bugs_per_file=bugs, fix=fix)
+            engine.run(loaded.get(spec, spec), emit, files=files, bugs_per_file=bugs, fix=fix,
+                       api_key=key.strip() or None)
         finally:
             run_lock.release()
 

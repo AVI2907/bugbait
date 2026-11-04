@@ -172,6 +172,17 @@ def list_examples():
     return sorted(p.name for p in (ROOT / "targets").iterdir() if p.is_dir())
 
 
+def is_hosted_safe_spec(spec: str) -> bool:
+    """True for example names and GitHub links (all the hosted demo accepts)."""
+    spec = (spec or "").strip().strip('"').strip("'")
+    if spec in list_examples():
+        return True
+    m = GITHUB_RE.match(spec)
+    if not m or ("github.com" not in spec and spec.count("/") != 1):
+        return False
+    return not m.group(1).startswith(".") and ".." not in spec  # no ../ Owner tricks
+
+
 def resolve(spec: str, log=print, refresh=False) -> Project:
     """Turn what the user typed (example name, folder path or GitHub link) into a Project."""
     spec = (spec or "").strip().strip('"').strip("'")

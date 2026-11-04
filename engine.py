@@ -1265,11 +1265,13 @@ def staged_source_files(project):
 
 # ---------- the whole pipeline ----------
 
-def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=False, refresh=False, min_realism=3):
+def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=False, refresh=False, min_realism=3,
+        api_key=None):
     """Run BugBait end to end on a project.
 
     spec: an example name, a folder path, a GitHub link, or a Project.
     files: source files to attack (relative paths). None = pick a few automatically.
+    api_key: explicit model key for both agents (a hosted visitor's key). None = environment.
     Returns the report dict, or None if it stopped early.
     """
     started = time.time()
@@ -1320,7 +1322,7 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
                 emit("saboteur", file=rel)
                 return generate_bugs(rel, (project.root / rel).read_text(),
                                      project.relevant_tests(rel), bugs_per_file,
-                                     language=project.language.label)
+                                     language=project.language.label, api_key=api_key)
 
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 candidates = [b for found in pool.map(study, chosen) for b in found]
@@ -1386,7 +1388,8 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
             source = (project.root / bug["file"]).read_text()
             try:
                 result = write_test(project, bug, source, project.relevant_tests(bug["file"]),
-                                    on_attempt=lambda n: emit("fix_attempt", id=bug["id"], attempt=n))
+                                    on_attempt=lambda n: emit("fix_attempt", id=bug["id"], attempt=n),
+                                    api_key=api_key)
             except Exception as e:
                 result = {"status": "failed", "test_code": None, "reason": str(e)[:200], "attempts": 0}
             bug["fix"] = result

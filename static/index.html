@@ -277,6 +277,9 @@
           <div class="filelist" id="ghRepos" hidden style="margin-top:10px"></div>
         </div>
       </div>
+      <div class="row" id="keyRow" hidden>
+        <input type="password" id="modelKey" placeholder="Your META_API_KEY (stays in this browser, never on the server)" autocomplete="off" spellcheck="false">
+      </div>
       <div class="row">
         <input type="text" id="spec" placeholder="github.com/owner/repo  or  /Users/you/code/project" autocomplete="off" spellcheck="false">
         <button class="btn" id="browse">Choose folder…</button>
@@ -577,6 +580,12 @@ function stream(url, { onEnd } = {}) {
 }
 
 // ---------- choosing a project ----------
+function apiKeyParam() {
+  const k = ($("modelKey")?.value || "").trim();
+  if (k) localStorage.setItem("bugbait.key", k);
+  return k ? `&key=${encodeURIComponent(k)}` : "";
+}
+
 function loadProject(spec) {
   spec = (spec ?? $("spec").value).trim();
   if (!spec) { $("spec").focus(); return; }
@@ -618,7 +627,7 @@ function runProject() {
   if (!current) return;
   resetRun();
   const files = chosenFiles().join(",");
-  stream(`/api/run?project=${encodeURIComponent(current.spec)}&files=${encodeURIComponent(files)}&bugs=${$("bugs").value}`,
+  stream(`/api/run?project=${encodeURIComponent(current.spec)}&files=${encodeURIComponent(files)}&bugs=${$("bugs").value}${apiKeyParam()}`,
          { onEnd: loadRecent });
 }
 
@@ -805,7 +814,17 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { $("overlay
 if (localStorage.getItem("bugbait.bugs")) $("bugs").value = localStorage.getItem("bugbait.bugs");
 if (localStorage.getItem("bugbait.spec")) $("spec").value = localStorage.getItem("bugbait.spec");
 refreshSteps();
-fetch("/api/version").then(r => r.json()).then(v => $("ver").textContent = "BugBait " + v.version).catch(() => {});
+fetch("/api/version").then(r => r.json()).then(v => {
+  $("ver").textContent = "BugBait " + v.version;
+  if (localStorage.getItem("bugbait.key")) $("modelKey").value = localStorage.getItem("bugbait.key");
+  if (v.hosted || !v.has_server_key) $("keyRow").hidden = false;
+  if (v.hosted) {
+    $("browse").hidden = true;
+    $("ghBox").hidden = true;
+    $("step1").hidden = true;
+    $("spec").placeholder = "github.com/owner/repo  or  an example: calculator, rustcalc…";
+  }
+}).catch(() => {});
 resetRun(); loadExamples(); loadRecent(); ghStatus();
 </script>
 </body>

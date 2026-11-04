@@ -142,6 +142,19 @@ The report lands as an in-place PR comment (updated, never spammed). **Options �
 
 A **VS Code extension** (surviving bugs underlined in your editor, one-click runs) is on the roadmap — see [ROADMAP.md](ROADMAP.md) for the full plan.
 
+## 🌐 Host it
+
+**One-click demo (free):** [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/AVI2907/bugbait)
+
+That hosts the dashboard with `BUGBAIT_HOSTED=1`: visitors bring their own model key (typed in the browser, never stored on the server), and only built-in examples + public GitHub repos can run. Set `META_API_KEY` in Render to sponsor visitors' runs with your key instead.
+
+**Your own server:**
+
+```bash
+docker build -t bugbait .
+docker run -p 5050:5050 -e META_API_KEY=... [-e GITHUB_TOKEN=...] bugbait
+```
+
 <details>
 <summary><strong>🧱 Project layout</strong></summary>
 
@@ -162,7 +175,7 @@ A **VS Code extension** (surviving bugs underlined in your editor, one-click run
 
 - BugBait never edits your project — everything runs on temporary copies. Only point it at code you trust, since dependency installs can run project code.
 - Each agent can use a different model provider (`SABOTEUR_PROVIDER=baseten`, `=custom` for any OpenAI-compatible endpoint). See `.env.example`.
-- Host the dashboard anywhere containers run: `docker build -t bugbait .` + `docker run -p 5050:5050 -e META_API_KEY=... bugbait`. The landing page in `docs/` is GitHub Pages ready (`main` / `docs`).
+- The landing page in `docs/` is GitHub Pages ready (`main` / `docs`).
 
 </details>
 
