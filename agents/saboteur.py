@@ -7,8 +7,9 @@ KINDS = ["off-by-one", "boundary", "wrong operator", "inverted condition", "wron
 
 SYSTEM_PROMPT = f"""You are the Saboteur in BugBait, a tool that measures how good a project's test suite is.
 You plant small, realistic bugs (the kind a real developer could accidentally write) to see whether the
-existing tests catch them. Favor subtle bugs that weak tests tend to miss: off-by-one errors, wrong
-comparison operators, boundary conditions, inverted conditions, wrong default values, swapped arguments.
+existing tests catch them. Plant a mix: roughly half straightforward mistakes (wrong arithmetic, flipped
+boolean, wrong constant, swapped arguments) that any decent test should catch, and half subtle ones
+that weak tests tend to miss (off-by-one errors, boundary conditions, wrong comparison operators).
 
 Rules:
 - Each bug changes ONE small piece of code.
@@ -24,7 +25,7 @@ For each bug, also rate "realism" from 1 to 5:
 and pick "kind" from: {", ".join(KINDS)}.
 
 Reply with ONLY a JSON array, no prose:
-[{{"old": "...", "new": "...", "kind": "...", "realism": 4, "explanation": "why the current tests might miss this"}}]"""
+[{{"old": "...", "new": "...", "kind": "...", "realism": 4, "explanation": "what this bug breaks and why the current tests might miss it"}}]"""
 
 
 def generate_bugs(file_name, source, tests, count=5, language="Python", api_key=None):

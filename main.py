@@ -58,8 +58,9 @@ def make_printer():
             b = bugs[d["id"]]
             tag = f"  [{b['kind']}, realism {b['realism']}/5]" if b.get("kind") else ""
             print(f"Bug {b['id']:>2} {'SURVIVED' if d['survived'] else 'caught  '} {short(b)}{tag}")
-            if d["survived"] and b.get("explanation"):
-                print(f"            why it slipped: {b['explanation']}")
+            if b.get("explanation"):
+                label = "why it slipped" if d["survived"] else "what it breaks"
+                print(f"            {label}: {b['explanation']}")
         elif event == "score_before":
             print(f"\nScore: {d['caught']}/{d['total']} bugs caught ({pct(d['caught'], d['total'])}%)")
         elif event == "risk":
