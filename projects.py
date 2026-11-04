@@ -324,6 +324,17 @@ def select_jdk(project, log):
                        f"Install it with: brew install openjdk@{required}")
 
 
+def _module_test_count(moddir):
+    """How many Java test files a service module has (for auto-pick)."""
+    n = 0
+    for p in moddir.rglob("*.java"):
+        if "target" in p.parts:
+            continue
+        if p.name.endswith(("Test.java", "Tests.java", "TestCase.java")) or "src/test" in p.as_posix():
+            n += 1
+    return n
+
+
 def _has_gradle(root):
     return ((root / "build.gradle").exists() or (root / "build.gradle.kts").exists()
             or (root / "gradlew").exists())
@@ -632,6 +643,17 @@ def _finish(project, log):
         project.go_extra_env = _writable_go_env()
         return project  # go test manages its own dependencies
     if project.language.id == "java":
+        if not (project.root / "pom.xml").is_file():
+            modules = sorted(p.parent.name for p in project.root.glob("*/pom.xml"))
+            if modules:
+                # Multi-service repo: test the service with the biggest suite (say so loudly).
+                best = max(modules, key=lambda m: _module_test_count(project.root / m))
+                others = [m for m in modules if m != best]
+                log(f"No pom.xml at the top level — testing {best}"
+                    + (f" (also found: {', '.join(others)}; open a service folder directly to choose)."
+                       if others else "."))
+                project.root = project.root / best
+                project.name = f"{project.name}-{best}"
         if (project.root / "pom.xml").is_file():
             if not shutil.which("mvn"):
                 raise ProjectError("This is a Java project, but Maven isn't installed. "
@@ -639,10 +661,6 @@ def _finish(project, log):
             project.build = "maven"
             project.java_home = select_jdk(project, log)
             return project  # Maven manages its own dependencies
-        modules = sorted(p.parent.name for p in project.root.glob("*/pom.xml"))
-        if modules:
-            raise ProjectError(f"No pom.xml at the top level. Open one service folder directly: "
-                               f"{', '.join(modules)}")
         if _has_gradle(project.root):
             return _finish_gradle(project, log)
         raise ProjectError("No pom.xml found. BugBait needs a Maven project (or Gradle wrapper) "

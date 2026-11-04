@@ -213,15 +213,35 @@ def test_finish_java_requires_maven(tmp_path, monkeypatch):
         projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
 
 
-def test_finish_java_guides_without_root_pom(tmp_path, monkeypatch):
+def test_finish_java_descends_into_single_module(tmp_path, monkeypatch):
     import projects
 
     (tmp_path / "svc-a" / "pom.xml").parent.mkdir(parents=True)
     (tmp_path / "svc-a" / "pom.xml").write_text("<project/>\n")
     (tmp_path / "svc-a" / "Main.java").write_text("class Main {}\n")
     monkeypatch.setattr(projects.shutil, "which", lambda c: "/bin/mvn")
-    with pytest.raises(projects.ProjectError, match="svc-a"):
-        projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=lambda m: None)
+    monkeypatch.setattr(projects, "select_jdk", lambda p, log: None)
+    logs = []
+    p = projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=logs.append)
+    assert p.build == "maven" and p.root == tmp_path / "svc-a" and p.name == "j-svc-a"
+    assert any("testing svc-a" in m for m in logs)
+
+
+def test_finish_java_picks_module_with_most_tests(tmp_path, monkeypatch):
+    import projects
+
+    for svc in ("svc-a", "svc-b"):
+        (tmp_path / svc / "pom.xml").parent.mkdir(parents=True)
+        (tmp_path / svc / "pom.xml").write_text("<project/>\n")
+    (tmp_path / "svc-a" / "A.java").write_text("class A {}\n")
+    (tmp_path / "svc-b" / "BTest.java").write_text("class BTest {}\n")
+    (tmp_path / "svc-b" / "CTest.java").write_text("class CTest {}\n")
+    monkeypatch.setattr(projects.shutil, "which", lambda c: "/bin/mvn")
+    monkeypatch.setattr(projects, "select_jdk", lambda p, log: None)
+    logs = []
+    p = projects._finish(projects.Project(name="j", root=tmp_path, source="local"), log=logs.append)
+    assert p.root == tmp_path / "svc-b" and p.name == "j-svc-b"
+    assert any("also found: svc-a" in m for m in logs)
 
 
 def test_finish_gradle_project_uses_wrapper(tmp_path, monkeypatch):
