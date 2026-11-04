@@ -115,7 +115,6 @@ cp .env.example .env        # then add your META_API_KEY
 **⌨️ Command line:**
 
 ```bash
-python main.py calculator --offline                # demo, no key needed
 python main.py ~/code/my-project --files app/models.py --bugs 8
 python main.py . --staged --no-fix                 # measure only, staged files
 python main.py . --fail-under 70                   # exit 1 unless 70%+ caught
