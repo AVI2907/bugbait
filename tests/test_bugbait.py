@@ -157,7 +157,7 @@ def test_python_baseline_sets_aside_failing_tests(tmp_path):
 def test_baseline_without_tests_explains_itself(tmp_path):
     import sys
 
-    (tmp_path / "app.py").write_text("def f():\n    return 1\n")
+    (tmp_path / "app.py").write_text("def add(a, b):\n    return a + b\n\n\ndef is_adult(age):\n    return age >= 18\n")
     p = Project(name="notests", root=tmp_path, source="local", python=sys.executable)
     events = []
     assert engine.baseline(p, lambda e, **d: events.append((e, d))) is None
