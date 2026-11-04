@@ -197,7 +197,7 @@ def verify_test(project, bug, test_code):
     return True, None
 
 
-def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
+def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None, api_key=None):
     """Ask Muse Spark for a test, verify it, retry with feedback.
 
     Returns a dict: {"status": "fixed" | "skipped" | "failed", "test_code", "reason", "attempts"}
@@ -227,7 +227,7 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None):
     for attempt in range(1, max_attempts + 1):
         if on_attempt:
             on_attempt(attempt)
-        reply = chat(messages, agent="fixer", temperature=0.2)
+        reply = chat(messages, agent="fixer", temperature=0.2, api_key=api_key)
         code, skip_reason = _extract_code(reply, language)
         if code is None:
             if skip_reason and "did not return" not in skip_reason:

@@ -27,7 +27,7 @@ Reply with ONLY a JSON array, no prose:
 [{{"old": "...", "new": "...", "kind": "...", "realism": 4, "explanation": "why the current tests might miss this"}}]"""
 
 
-def generate_bugs(file_name, source, tests, count=5, language="Python"):
+def generate_bugs(file_name, source, tests, count=5, language="Python", api_key=None):
     """Ask Muse Spark for `count` candidate bugs for one source file."""
     fence = {"Python": "python", "JavaScript": "js", "Java": "java",
              "Go": "go", "TypeScript": "ts", "Rust": "rust",
@@ -42,7 +42,7 @@ def generate_bugs(file_name, source, tests, count=5, language="Python"):
     reply = chat(agent="saboteur", messages=[
         {"role": "system", "content": system},
         {"role": "user", "content": user_prompt},
-    ])
+    ], api_key=api_key)
     bugs = extract_json(reply)
     if isinstance(bugs, dict):
         bugs = [bugs]
