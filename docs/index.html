@@ -54,8 +54,8 @@
         </dl>
       </div>
       <figure class="term" aria-label="Example BugBait run">
-        <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tt">bugbait — calculator</span></figcaption>
-<pre><code><span class="dim">$ python3 main.py calculator --bugs 2</span>
+        <figcaption><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="tt">bugbait — my-project</span></figcaption>
+<pre><code><span class="dim">$ python3 main.py ~/code/my-project --bugs 2</span>
 Baseline: 4 tests pass
 
 Bug  1 <span class="surv">SURVIVED</span>  age &gt;= 18  →  age &gt; 18   <span class="dim">[boundary, 5/5]</span>
@@ -158,8 +158,8 @@ Score: <span class="good">0% → 100%</span>  (0/2 → 2/2 bugs caught)</code></
 cd bugbait && pip install -r requirements.txt</code></pre><button class="copy" type="button">Copy</button></div></li>
       <li><p>Add your model key to <code>.env</code>:</p>
         <div class="cmd"><pre><code>META_API_KEY=your_key_here</code></pre><button class="copy" type="button">Copy</button></div></li>
-      <li><p>Run the demo — no key needed for this one:</p>
-        <div class="cmd"><pre><code>python3 main.py calculator --offline</code></pre><button class="copy" type="button">Copy</button></div></li>
+      <li><p>Run it on your own project:</p>
+        <div class="cmd"><pre><code>python3 main.py ~/code/my-project</code></pre><button class="copy" type="button">Copy</button></div></li>
       <li><p>Then open the dashboard and test anything:</p>
         <div class="cmd"><pre><code>python3 app.py   <span class="dim"># opens http://localhost:5050</span></code></pre><button class="copy" type="button">Copy</button></div></li>
     </ol>
