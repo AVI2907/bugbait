@@ -243,7 +243,17 @@ class Sandbox:
             args = [str(t) for t in test_paths]
         elif self.project.excluded_vitest_files:
             excluded = set(self.project.excluded_vitest_files)
-            args = [t.as_posix() for t in self.project.test_files() if t.as_posix() not in excluded]
+            mine = [t.as_posix() for t in self.project.test_files()]
+            args = [t for t in mine if t not in excluded]
+            # Test files added only to this sandbox (e.g. generated tests) still need to run;
+            # project files stay excluded.
+            known = {t.as_posix() for t in self.project.code_files()}
+            for p in sorted(self.path.rglob("*")):
+                if not p.is_file() or "node_modules" in p.parts:
+                    continue
+                rel = p.relative_to(self.path)
+                if rel.as_posix() not in known and self.project.language.is_test_file(rel):
+                    args.append(rel.as_posix())
         else:
             args = []
         try:

@@ -1347,6 +1347,21 @@ def test_vitest_sandbox_run(tmp_path, monkeypatch):
 
 
 @needs_vitest
+def test_vitest_runs_sandbox_only_tests_with_exclusions(tmp_path, monkeypatch):
+    from runner import Sandbox, parse_vitest_results
+
+    p = resolve(str(_vitest_project(tmp_path, monkeypatch)), log=lambda m: None)
+    p.excluded_vitest_files = ["test/calc.test.js"]  # exclude the whole real suite
+    with Sandbox(p) as sb:
+        sb.add_file("test/extra.test.js",
+                    'import { test, expect } from "vitest";\n'
+                    'test("boom", () => { expect(1).toBe(2); });\n')
+        passed, output = sb.run_tests()
+        assert not passed
+        assert parse_vitest_results(output)[0] == 1  # only the sandbox-only test ran
+
+
+@needs_vitest
 def test_vitest_fixer_verify(tmp_path, monkeypatch):
     from agents.fixer import verify_test
 
