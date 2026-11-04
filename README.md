@@ -63,6 +63,44 @@ One-line changes that keep the code valid — the kind that survive code review:
 
 Point BugBait at a **GitHub repo** (`owner/repo`), a **local folder**, or a **built-in example** (`calculator`, `rustcalc`, `phpcalc`, `kotlincalc`, … — try one with `--offline`, no API key needed).
 
+## 🏗️ Architecture
+
+Three interfaces, one engine. Every run flows through the same pipeline no matter where you start it:
+
+```
+┌─────────────┐  ┌─────────────┐  ┌──────────────┐
+│  Dashboard  │  │     CLI     │  │   VS Code    │
+│ Flask + JS  │  │  main.py    │  │  extension   │
+└──────┬──────┘  └──────┬──────┘  └──────┬───────┘
+       └────────────────┼───────────────┘
+                        ▼
+              ┌────────────────────┐
+              │       Engine       │  baseline → bugs → run → fix → rescore
+              └─────────┬──────────┘
+        ┌───────────────┼──────────────┐
+        ▼              ▼              ▼
+  ┌───────────┐  ┌───────────┐  ┌───────────┐
+  │ Saboteur  │  │  Sandbox  │  │   Fixer   │
+  │  agent    │  │  runner   │  │   agent   │
+  └───────────┘  └───────────┘  └───────────┘
+        │              │              │
+        └──────────────┼──────────────┘
+                       ▼
+   score · weakest spots · verified tests · PR comment
+```
+
+| Layer | What it does |
+|---|---|
+| **Interfaces** | Flask dashboard (point-and-click + score history), CLI (scripting, `--staged`, `--fail-under`, pre-commit hook), VS Code extension (talks to the CLI over `--json`, underlines surviving bugs). |
+| **Engine** | Owns the pipeline: measures the baseline, fans bugs out across workers, rescores after the Fixer, and writes one JSON report per run. |
+| **Agents** | Saboteur and Fixer call Muse Spark through a provider layer (`llm.py`) — Meta Model API by default, swappable per agent to Baseten or any OpenAI-compatible endpoint. |
+| **Sandbox runner** | Copies the project to a temp folder per bug, runs the native test command for the detected language (pytest, `node --test`, `go test`, Maven/Gradle, cargo, RSpec/minitest, PHPUnit, `dotnet test`, kotlinc+JUnit), parses results. Nothing touches your files. |
+| **Outputs** | Before/after score, weakest-spot ranking, a merged verified-test file, GitHub PRs, in-place PR comments, and a reusable GitHub Action. |
+
+## 🧰 Built with
+
+**Core** — Python 3.10+, Flask, pytest · **AI** — Meta Muse Spark (Meta Model API), Baseten + custom OpenAI-compatible providers · **Packaging** — Docker, GitHub Action (`action.yml`), VSIX extension · **Test runners driven** — pytest, node:test, go test, Maven, Gradle, cargo, RSpec, minitest, PHPUnit, dotnet, kotlinc + JUnit · **Site** — hand-written HTML/CSS on GitHub Pages.
+
 ## 🚀 Quick start
 
 ```bash
