@@ -52,7 +52,7 @@ One-line changes that keep the code valid — the kind that survive code review:
 | Language | Test runner | Needs installed |
 |---|---|---|
 | Python | pytest / unittest | Python 3.10+ |
-| JavaScript · TypeScript | node:test | Node.js (22.18+ for TS, zero build step) |
+| JavaScript · TypeScript | node:test + vitest | Node.js (22.18+ for TS type-stripping; vitest deps install once via npm) |
 | Go | go test | `go` + `go.mod` |
 | Java | Maven & Gradle | JDK (+ Android SDK for Android apps) |
 | Rust | cargo test | `cargo` + `Cargo.toml` |

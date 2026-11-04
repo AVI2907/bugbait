@@ -87,6 +87,24 @@ def parse_minitest_results(output):
     return total, failed, sorted(bad), passed
 
 
+def parse_vitest_results(output):
+    """(total, failed, failed_files) from `vitest run --reporter=json` output (jest format)."""
+    import json
+    try:
+        doc = json.loads(output[output.index("{"):output.rindex("}") + 1])
+    except ValueError:
+        return 0, 0, []
+    total = doc.get("numTotalTests", 0) or 0
+    failed = doc.get("numFailedTests", 0) or 0
+    names = []
+    for r in doc.get("testResults", []) or []:
+        asserts = r.get("assertionResults", []) or []
+        if r.get("status") == "failed" or any(a.get("status") == "failed" for a in asserts):
+            if r.get("name"):
+                names.append(r["name"])
+    return total, failed, sorted(set(names))
+
+
 def parse_rspec_results(output):
     """(total, failed, passing_locations) from `rspec --format json` output."""
     import json
@@ -184,6 +202,16 @@ class Sandbox:
             if not target.exists():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
+        if (self.project.language.id in ("javascript", "typescript")
+                and self.project.js_framework == "vitest"):
+            # node_modules is too big to copy: link the installed one instead (read-only use).
+            src = self.project.root / "node_modules"
+            dest = self.path / "node_modules"
+            if src.is_dir() and not dest.exists():
+                try:
+                    dest.symlink_to(src, target_is_directory=True)
+                except OSError:
+                    pass
         return self
 
     def __exit__(self, *exc):
@@ -202,6 +230,30 @@ class Sandbox:
         path = self.path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
+
+    def _run_vitest(self, test_paths, timeout):
+        """Run vitest in the sandbox (deps symlinked from the installed project)."""
+        binary = self.path / "node_modules" / "vitest" / "vitest.mjs"
+        if not binary.is_file():
+            return False, "vitest isn't installed for this project."
+        node = shutil.which("node")
+        if not node:
+            return False, "Node.js isn't installed."
+        if test_paths:
+            args = [str(t) for t in test_paths]
+        elif self.project.excluded_vitest_files:
+            excluded = set(self.project.excluded_vitest_files)
+            args = [t.as_posix() for t in self.project.test_files() if t.as_posix() not in excluded]
+        else:
+            args = []
+        try:
+            result = subprocess.run(
+                [node, str(binary), "run", "--reporter=json", *args],
+                cwd=self.path, capture_output=True, text=True,
+                timeout=timeout, env=self.project.env(self.path))
+        except (subprocess.SubprocessError, OSError) as e:
+            return False, f"Couldn't run vitest: {e}"
+        return result.returncode == 0, result.stdout + result.stderr
 
     def _run_kotlin(self, test_paths, timeout):
         """Compile everything with kotlinc, then run test classes with JUnitCore."""
@@ -260,7 +312,12 @@ class Sandbox:
                 timeout = 900  # Maven builds (and first-run downloads) are slow
             elif self.project.language.id in ("rust", "csharp", "kotlin"):
                 timeout = 600  # first-time compiles are slow
+            elif (self.project.language.id in ("javascript", "typescript")
+                    and self.project.js_framework == "vitest"):
+                timeout = 600  # big suites + cold workers are slow
         if self.project.language.id in ("javascript", "typescript"):
+            if self.project.js_framework == "vitest":
+                return self._run_vitest(test_paths, timeout)
             cmd = ["node", "--test", *test_paths]
         elif self.project.language.id == "kotlin":
             return self._run_kotlin(test_paths, timeout)

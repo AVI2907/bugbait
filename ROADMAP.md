@@ -33,7 +33,8 @@ Working top-down. Checked = built.
 - [x] PHP (PHPUnit, set-aside, Fixer, demo target)
 - [x] C# (dotnet test: xUnit/NUnit/MSTest, set-aside, Fixer, demo target)
 - [x] Kotlin (kotlinc + JUnit, set-aside, Fixer, demo target)
-- [ ] JavaScript: jest/vitest projects
+- [x] vitest projects (JSON reporter, set-aside, Fixer) — proven on a real 190-file suite
+- [ ] JavaScript: jest projects
 - [ ] Android end-to-end proof (needs Android SDK on the machine)
 - [ ] Severity per surviving bug (critical/major/cosmetic)
 

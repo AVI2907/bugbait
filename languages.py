@@ -6,6 +6,7 @@ runner.py. Everything else (Saboteur, sandboxing, Fixer, scoring) is generic.
 """
 
 import ast
+import json
 import os
 import shutil
 import subprocess
@@ -241,6 +242,25 @@ ALL = (PYTHON, JAVASCRIPT, JAVA, GO, TYPESCRIPT, RUST, RUBY, PHP, CSHARP, KOTLIN
 # Extra extensions and build files that count toward a language for detection only
 DETECT_HINTS = {JAVASCRIPT: (".jsx",), JAVA: (".kt", ".kts", ".scala"), TYPESCRIPT: (".tsx",),
                 RUBY: (".rake", ".gemspec"), PHP: (".phtml",)}
+
+
+def detect_js_framework(root) -> str:
+    """'vitest' if a JavaScript/TypeScript project tests with vitest, else 'node:test'."""
+    root = Path(root)
+    if (list(root.glob("vitest.config.*")) or list(root.glob("vitest.workspace.*"))
+            or list(root.glob("vitest.projects.*"))):
+        return "vitest"
+    pkg = root / "package.json"
+    if pkg.is_file():
+        try:
+            data = json.loads(pkg.read_text())
+        except (ValueError, OSError):
+            return "node:test"
+        deps = {**(data.get("dependencies") or {}), **(data.get("devDependencies") or {})}
+        scripts = data.get("scripts") or {}
+        if "vitest" in deps or "vitest" in str(scripts.get("test", "")):
+            return "vitest"
+    return "node:test"
 
 
 def detect(root: Path) -> Language:

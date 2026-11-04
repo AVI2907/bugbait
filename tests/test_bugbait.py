@@ -125,6 +125,13 @@ def test_no_tests_message_for_empty_project(tmp_path):
     assert "doesn't seem to contain any code yet" in engine.no_tests_message(p)
 
 
+def test_no_tests_message_names_vitest(tmp_path):
+    (tmp_path / "calc.js").write_text("export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n")
+    p = Project(name="js", root=tmp_path, source="local", language=languages.JAVASCRIPT)
+    p.js_framework = "vitest"
+    assert "needs vitest tests" in engine.no_tests_message(p)
+
+
 def test_no_tests_message_for_foreign_project(tmp_path):
     (tmp_path / "Main.java").write_text("class Main {}\n")
     p = Project(name="java", root=tmp_path, source="local")

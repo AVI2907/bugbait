@@ -17,7 +17,7 @@ from llm import model_for
 from projects import ROOT, SKIP_DIRS, Project, ProjectError, resolve
 from runner import (Sandbox, parse_cargo_results, parse_dotnet_results, parse_go_results,
                     parse_gradle_results, parse_junit_results, parse_minitest_results,
-                    parse_phpunit_results, parse_rspec_results)
+                    parse_phpunit_results, parse_rspec_results, parse_vitest_results)
 
 OFFLINE_BUGS = {
     "calculator": [
@@ -389,8 +389,11 @@ def no_tests_message(project):
                         "that's why — more languages are coming.")
             return ("No test files were found, and the source files are all empty — this project "
                     "doesn't seem to contain any code yet. Push your code and tests, then run again.")
+        framework = lang.test_framework
+        if lang.id in ("javascript", "typescript") and project.js_framework == "vitest":
+            framework = "vitest"
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
-               f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
+               f"{lang.test_hint}). It measures test suites, so it needs {framework} tests to run.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")
@@ -434,6 +437,52 @@ def _go_readable(output, limit=3000):
         if event.get("Action") == "output" and event.get("Output"):
             texts.append(event["Output"])
     return ("".join(texts).strip() or output)[-limit:]
+
+
+def _match_vitest_files(abs_paths, project):
+    """Map vitest's absolute result paths back to project-relative test files."""
+    rels = [t.as_posix() for t in project.test_files()]
+    out = []
+    for a in abs_paths:
+        norm = a.replace("\\", "/")
+        hit = next((r for r in rels if norm == r or norm.endswith("/" + r)), None)
+        if hit and hit not in out:
+            out.append(hit)
+    return sorted(out)
+
+
+def vitest_baseline(project, emit):
+    """Baseline for vitest projects (failing files set aside wholesale)."""
+    with Sandbox(project) as sb:
+        passed, output = sb.run_tests(stop_early=False)
+        total, failed, failed_abs = parse_vitest_results(output)
+    if total == 0:
+        emit("baseline", passed=False, tests=0,
+             output=output[-3000:] if not passed else no_tests_message(project))
+        return None
+    set_aside = 0
+    if failed or not passed:
+        rel = _match_vitest_files(failed_abs, project)
+        if not rel:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+        project.excluded_vitest_files = rel
+        set_aside = failed
+        if failed:
+            msg = (f"{set_aside} tests already fail without any planted bugs. "
+                   f"BugBait will set them aside.")
+        else:
+            msg = (f"{len(rel)} test files can't run cleanly without any planted bugs. "
+                   f"BugBait will set them aside.")
+        emit("setup", message=msg)
+        with Sandbox(project) as sb:
+            passed, output = sb.run_tests(stop_early=False)
+            total, failed, _ = parse_vitest_results(output)
+        if not passed or failed or total == 0:
+            emit("baseline", passed=False, tests=0, output=output[-3000:])
+            return None
+    emit("baseline", passed=True, tests=total, set_aside=set_aside)
+    return total
 
 
 def kotlin_baseline(project, emit):
@@ -656,6 +705,8 @@ def baseline(project, emit):
         if project.ruby_framework == "rspec":
             return rspec_baseline(project, emit)
         return minitest_baseline(project, emit)
+    if project.language.id in ("javascript", "typescript") and project.js_framework == "vitest":
+        return vitest_baseline(project, emit)
     if project.language.id == "rust":
         return rust_baseline(project, emit)
     if project.language.id == "go":

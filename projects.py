@@ -25,7 +25,7 @@ ROOT = Path(__file__).parent
 # Cloned repos and per-project environments (git-ignored). Override with BUGBAIT_WORKSPACE.
 WORKSPACE = Path(os.environ.get("BUGBAIT_WORKSPACE") or ROOT / "workspace").expanduser()
 
-from languages import PYTHON, SKIP_DIRS, Language, detect  # noqa: E402  (SKIP_DIRS re-exported for runner)
+from languages import PYTHON, SKIP_DIRS, Language, detect, detect_js_framework  # noqa: E402  (SKIP_DIRS re-exported for runner)
 NOT_SOURCE_DIRS = {"tests", "test", "testing", "docs", "doc", "examples", "example", "benchmarks", "scripts",
                    "tools", "bin", "migrations"}
 NOT_SOURCE_FILES = {"setup.py", "conftest.py", "noxfile.py", "fabfile.py", "manage.py", "__main__.py"}
@@ -52,6 +52,8 @@ class Project:
     included_gradle_tests: list = field(default_factory=list)  # passing classes (baseline set-aside)
     included_go_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
     skipped_rust_tests: list = field(default_factory=list)  # failing tests (baseline set-aside)
+    js_framework: str = "node:test"  # "node:test" | "vitest" (JavaScript/TypeScript)
+    excluded_vitest_files: list = field(default_factory=list)  # failing files (baseline set-aside)
     ruby_framework: str = "minitest"  # "minitest" | "rspec"
     included_minitest_tests: list = field(default_factory=list)  # passing tests (baseline set-aside)
     rspec_locations: list = field(default_factory=list)  # passing file:line (baseline set-aside)
@@ -485,6 +487,35 @@ def _node_strips_types(node):
         return False
 
 
+def _ensure_vitest_deps(project, log):
+    """npm-install a vitest project's dependencies once (skipped when vitest is present)."""
+    binary = project.root / "node_modules" / "vitest" / "vitest.mjs"
+    if binary.is_file():
+        return
+    if not (project.root / "package.json").is_file():
+        raise ProjectError("This project uses vitest, but has no package.json. "
+                           "BugBait needs one to install dependencies.")
+    if not shutil.which("npm"):
+        raise ProjectError("This project uses vitest, but npm isn't installed. "
+                           "Install Node.js (which includes npm) and try again.")
+    use_ci = (project.root / "package-lock.json").is_file()
+    log(f"Installing project dependencies with npm {'ci' if use_ci else 'install'} "
+        "(first time only, may take a minute)...")
+    def _install(*args):
+        try:
+            return subprocess.run(["npm", *args, "--no-audit", "--no-fund"],
+                                  cwd=project.root, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.SubprocessError) as e:
+            raise ProjectError(f"Couldn't run npm: {e}")
+
+    found = _install("ci" if use_ci else "install")
+    if use_ci and found.returncode != 0:  # stale lockfile: fall back to a resolving install
+        found = _install("install")
+    if found.returncode != 0 or not binary.is_file():
+        raise ProjectError("Couldn't install this project's npm dependencies:\n"
+                           + (found.stderr or found.stdout)[-1500:])
+
+
 def _writable_go_env():
     """GOCACHE/GOPATH overrides when Go's defaults aren't writable (sandboxes, read-only HOME)."""
     out = {}
@@ -522,6 +553,9 @@ def _finish(project, log):
         if project.language.id == "typescript" and not _node_strips_types(node):
             raise ProjectError("This is a TypeScript project, but your Node.js is too old to run "
                                ".ts files directly. Install Node.js 22.18+ and try again.")
+        project.js_framework = detect_js_framework(project.root)
+        if project.js_framework == "vitest":
+            _ensure_vitest_deps(project, log)
         return project  # node --test needs no environment setup
     if project.language.id == "kotlin":
         kotlinc = shutil.which("kotlinc")

@@ -141,6 +141,19 @@ Rules:
 If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
 change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
 
+VITEST_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a project tested with vitest and the existing tests did NOT catch it.
+Write a vitest test that FAILS on the buggy code and PASSES on the original code.
+
+Rules:
+- Test the intended behavior of the ORIGINAL code, not implementation details.
+- Import from the module the same way the existing tests do (the test file sits next to them).
+- Import test helpers from 'vitest' (`import { test, expect } from 'vitest'`, or describe/it),
+  and write one or two small test blocks.
+- Reply with ONLY one fenced code block.
+
+If the bug does not change any behavior a reasonable caller depends on (an "equivalent" or harmless
+change), do not write a test. Instead reply with a single line: NO_TEST: <short reason>"""
+
 GO_SYSTEM_PROMPT = """You are the Fixer in BugBait. A bug was planted in a Go project and the existing tests did NOT catch it.
 Write a Go test that FAILS on the buggy code and PASSES on the original code.
 
@@ -214,6 +227,8 @@ def write_test(project, bug, source, tests, max_attempts=3, on_attempt=None, api
               "csharp": CSHARP_SYSTEM_PROMPT, "kotlin": KOTLIN_SYSTEM_PROMPT}[project.language.id]
     if project.language.id == "ruby" and project.ruby_framework == "rspec":
         system = RSPEC_SYSTEM_PROMPT
+    if project.language.id in ("javascript", "typescript") and project.js_framework == "vitest":
+        system = VITEST_SYSTEM_PROMPT
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": (

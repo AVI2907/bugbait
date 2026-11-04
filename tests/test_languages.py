@@ -9,6 +9,8 @@ import languages
 from projects import Project, resolve
 
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+needs_vitest = pytest.mark.skipif(shutil.which("node") is None or shutil.which("npm") is None,
+                                  reason="node/npm not installed")
 needs_go = pytest.mark.skipif(shutil.which("go") is None, reason="go not installed")
 needs_cargo = pytest.mark.skipif(shutil.which("cargo") is None, reason="cargo not installed")
 needs_rustfmt = pytest.mark.skipif(shutil.which("rustfmt") is None, reason="rustfmt not installed")
@@ -380,7 +382,8 @@ def test_gradle_baseline_without_tests_explains(tmp_path, monkeypatch):
     import runner
 
     (tmp_path / "build.gradle").write_text("// gradle\n")
-    (tmp_path / "Main.java").write_text("class Main {}\n")
+    (tmp_path / "Main.java").write_text(
+        "public class Main {\n    public static int add(int a, int b) {\n        return a + b;\n    }\n}\n")
     p = Project(name="g", root=tmp_path, source="local", language=languages.JAVA,
                 build="gradle", gradle_cmd=["./gradlew"], gradle_tasks=["test"])
     monkeypatch.setattr(runner.Sandbox, "run_tests", lambda self, *a, **k: (True, "OK"))
@@ -1236,5 +1239,123 @@ def test_kotlin_fixer_verify(tmp_path):
             "    @Test\n    fun checkAdd() {\n        assertEquals(4, Calc.add(2, 2))\n    }\n}\n")
     assert verify_test(p, bug, good) == (True, None)
     weak = good.replace("assertEquals(4, Calc.add(2, 2))", "assertEquals(0, Calc.add(0, 0))")
+    ok, problem = verify_test(p, bug, weak)
+    assert ok is False and "BUGGY" in problem
+
+
+def test_detect_js_framework(tmp_path):
+    from languages import detect_js_framework
+
+    assert detect_js_framework(tmp_path) == "node:test"
+    (tmp_path / "package.json").write_text('{"name": "x", "scripts": {"test": "node --test"}}\n')
+    assert detect_js_framework(tmp_path) == "node:test"
+    (tmp_path / "package.json").write_text('{"name": "x", "devDependencies": {"vitest": "^3.2.0"}}\n')
+    assert detect_js_framework(tmp_path) == "vitest"
+    (tmp_path / "package.json").write_text('{"name": "x", "scripts": {"test": "vitest run"}}\n')
+    assert detect_js_framework(tmp_path) == "vitest"
+    (tmp_path / "package.json").write_text("not json\n")
+    (tmp_path / "vitest.config.ts").write_text("export default {}\n")
+    assert detect_js_framework(tmp_path) == "vitest"
+
+
+def test_parse_vitest_results():
+    from runner import parse_vitest_results
+
+    passing = ('{"numTotalTests": 9, "numFailedTests": 0, "success": true, "testResults": ['
+               '{"name": "/t/test/a.test.ts", "status": "passed", "assertionResults": []}]}')
+    assert parse_vitest_results(passing) == (9, 0, [])
+    failing = ('{"numTotalTests": 3, "numFailedTests": 1, "success": false, "testResults": ['
+               '{"name": "/t/test/a.test.ts", "status": "passed", "assertionResults": []}, '
+               '{"name": "/t/test/b.test.ts", "status": "failed", "assertionResults": ['
+               '{"title": "x", "status": "failed"}]}]}')
+    assert parse_vitest_results(failing) == (3, 1, ["/t/test/b.test.ts"])
+    assert parse_vitest_results("not json at all") == (0, 0, [])
+
+
+_VITEST_TEMPLATE = None
+
+
+def _vitest_project(path, monkeypatch):
+    """Copy a tiny vitest project (deps installed once) into path; returns path."""
+    import subprocess
+    import tempfile
+
+    global _VITEST_TEMPLATE
+    if _VITEST_TEMPLATE is None:
+        template = Path(tempfile.mkdtemp(prefix="vitest-template-"))
+        (template / "package.json").write_text(
+            '{"name": "vtcalc", "type": "module", "scripts": {"test": "vitest run"}, '
+            '"devDependencies": {"vitest": "^3.2.0"}}\n')
+        (template / "src").mkdir()
+        (template / "src" / "calc.js").write_text(
+            "export function add(a, b) {\n  return a + b;\n}\n\n"
+            "export function isAdult(age) {\n  return age >= 18;\n}\n")
+        (template / "test").mkdir()
+        (template / "test" / "calc.test.js").write_text(
+            'import { test, expect } from "vitest";\n'
+            'import { add, isAdult } from "../src/calc.js";\n\n'
+            'test("adds", () => { expect(add(2, 3)).toBe(5); });\n'
+            'test("adults", () => { expect(isAdult(30)).toBe(true); expect(isAdult(5)).toBe(false); });\n')
+        # HOME may be read-only in sandboxes; npm only needs it for its cache.
+        monkeypatch.setenv("HOME", str(template))
+        subprocess.run(["npm", "install", "--no-audit", "--no-fund"], cwd=template,
+                       capture_output=True, timeout=600, check=True)
+        _VITEST_TEMPLATE = template
+    shutil.copytree(_VITEST_TEMPLATE, path, dirs_exist_ok=True, symlinks=True,
+                    ignore=shutil.ignore_patterns(".npm"))
+    return path
+
+
+@needs_vitest
+def test_vitest_baseline_counts_passes(tmp_path, monkeypatch):
+    import engine
+
+    p = resolve(str(_vitest_project(tmp_path, monkeypatch)), log=lambda m: None)
+    assert p.js_framework == "vitest"
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 2
+
+
+@needs_vitest
+def test_vitest_baseline_sets_aside_failing(tmp_path, monkeypatch):
+    import engine
+
+    _vitest_project(tmp_path, monkeypatch)
+    (tmp_path / "test" / "broken.test.js").write_text(
+        'import { test, expect } from "vitest";\n'
+        'import { add } from "../src/calc.js";\n\n'
+        'test("broken", () => { expect(add(1, 1)).toBe(3); });\n')
+    p = resolve(str(tmp_path), log=lambda m: None)
+    events = []
+    assert engine.baseline(p, lambda e, **d: events.append((e, d))) == 2
+    assert p.excluded_vitest_files == ["test/broken.test.js"]
+    assert any(e == "setup" and "set them aside" in d["message"] for e, d in events)
+
+
+@needs_vitest
+def test_vitest_sandbox_run(tmp_path, monkeypatch):
+    from runner import Sandbox
+
+    p = resolve(str(_vitest_project(tmp_path, monkeypatch)), log=lambda m: None)
+    with Sandbox(p) as sb:
+        passed, _ = sb.run_tests(stop_early=False)
+        assert passed
+    with Sandbox(p) as sb:
+        sb.apply_mutation("src/calc.js", "a + b", "a - b")
+        passed, _ = sb.run_tests()
+        assert not passed
+
+
+@needs_vitest
+def test_vitest_fixer_verify(tmp_path, monkeypatch):
+    from agents.fixer import verify_test
+
+    p = resolve(str(_vitest_project(tmp_path, monkeypatch)), log=lambda m: None)
+    bug = {"file": "src/calc.js", "old": "a + b", "new": "a - b"}
+    good = ('import { test, expect } from "vitest";\n'
+            'import { add } from "../src/calc.js";\n\n'
+            'test("check", () => { expect(add(2, 2)).toBe(4); });\n')
+    assert verify_test(p, bug, good) == (True, None)
+    weak = good.replace("expect(add(2, 2)).toBe(4)", "expect(add(0, 0)).toBe(0)")
     ok, problem = verify_test(p, bug, weak)
     assert ok is False and "BUGGY" in problem
