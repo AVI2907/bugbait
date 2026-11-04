@@ -382,11 +382,15 @@ def no_tests_message(project):
     lang = project.language
     n = len(project.test_files())
     if n == 0:
+        if not project.source_files():
+            if not project.code_files():
+                return ("No code files were found in this project at all. If this isn't a Python, "
+                        "JavaScript, TypeScript, Go, Rust, Ruby, PHP, C#, Kotlin or Java project, "
+                        "that's why — more languages are coming.")
+            return ("No test files were found, and the source files are all empty — this project "
+                    "doesn't seem to contain any code yet. Push your code and tests, then run again.")
         msg = (f"No {lang.label} test files were found in this project (BugBait looks for "
                f"{lang.test_hint}). It measures test suites, so it needs {lang.test_framework} tests to run.")
-        if not project.code_files():
-            msg += (" If this isn't a Python, JavaScript, TypeScript, Go, Rust, Ruby, PHP, C#, "
-                    "Kotlin or Java project, that's why — more languages are coming.")
         return msg
     return (f"Found {n} test file(s), but {lang.test_framework} collected no tests from them. "
             "They may need dependencies BugBait couldn't install, or they define no tests.")

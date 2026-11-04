@@ -112,10 +112,17 @@ def test_project_info_counts_test_files(calc):
 
 
 def test_no_tests_message_without_test_files(tmp_path):
-    (tmp_path / "app.py").write_text("x = 1\n")
+    (tmp_path / "app.py").write_text("def add(a, b):\n    return a + b\n\n\ndef is_adult(age):\n    return age >= 18\n")
     p = Project(name="notests", root=tmp_path, source="local")
     msg = engine.no_tests_message(p)
     assert "No Python test files" in msg and "pytest" in msg
+
+
+def test_no_tests_message_for_empty_project(tmp_path):
+    (tmp_path / "app.py").write_text("")
+    (tmp_path / "util.py").write_text("# nothing here yet\n")
+    p = Project(name="empty", root=tmp_path, source="local")
+    assert "doesn't seem to contain any code yet" in engine.no_tests_message(p)
 
 
 def test_no_tests_message_for_foreign_project(tmp_path):
@@ -125,7 +132,7 @@ def test_no_tests_message_for_foreign_project(tmp_path):
 
 
 def test_no_tests_message_javascript(tmp_path):
-    (tmp_path / "calc.js").write_text("export const add = (a, b) => a + b;\n")
+    (tmp_path / "calc.js").write_text("export const add = (a, b) => a + b;\nexport const sub = (a, b) => a - b;\n")
     p = Project(name="js", root=tmp_path, source="local", language=languages.JAVASCRIPT)
     msg = engine.no_tests_message(p)
     assert "No JavaScript test files" in msg and "node --test" in msg
