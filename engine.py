@@ -1219,6 +1219,27 @@ def _merged_tests_pass(project, test_file):
         return False
 
 
+def _rescore_isolated(project, accepted, bugs, survivors, workers, emit):
+    """Fallback rescore when merged tests conflict: score each verified test alone.
+
+    Returns caught_after. A bug counts as caught if any single new test catches it;
+    originally-caught bugs stay caught (extra passing tests can't un-fail a suite).
+    """
+    survived = {b["id"]: True for b in survivors}
+    for _, _, code in accepted:
+        if not _merged_tests_pass(project, code):
+            continue
+        res = run_bugs(project, survivors, workers, extra_tests=code)
+        for b in survivors:
+            if not res.get(b["id"], True):
+                survived[b["id"]] = False
+    for b in bugs:
+        final = survived.get(b["id"], False)
+        b["survived_with_new_tests"] = final
+        emit("bug_after", id=b["id"], survived=final)
+    return len(bugs) - sum(survived.values())
+
+
 def compare_reports(a, b):
     """Diff two run reports: score movement, per-function trends, exact bug matches."""
     def score(r, key):
@@ -1462,8 +1483,13 @@ def run(spec, emit, files=None, bugs_per_file=5, workers=4, fix=True, offline=Fa
             report["generated_tests"] = test_file
 
             if not _merged_tests_pass(project, test_file):
-                emit("setup", message="The merged test file didn't pass on its own, so it was saved "
-                                      "but not scored. Each test was still individually verified.")
+                emit("setup", message="The merged test file has conflicting setups, "
+                                      "so each new test will be scored on its own.")
+                caught_after = _rescore_isolated(project, accepted, bugs, survivors, workers, emit)
+                report["score_after"] = {"caught": caught_after, "total": len(bugs)}
+                emit("score_after", caught=caught_after, total=len(bugs), tests_added=len(accepted),
+                     saved_to=(out_dir / project.language.generated_name).relative_to(ROOT).as_posix(),
+                     test_path=generated_path(project))
             else:
                 def on_after(bug, survived):
                     bug["survived_with_new_tests"] = survived

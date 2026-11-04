@@ -132,6 +132,27 @@ def test_no_tests_message_names_vitest(tmp_path):
     assert "needs vitest tests" in engine.no_tests_message(p)
 
 
+def test_rescore_isolated_when_merged_conflicts(calc):
+    b1 = {"id": 1, "file": "calc.py", "old": "age >= 18", "new": "age > 18",
+          "survived_original_tests": True}
+    b2 = {"id": 2, "file": "calc.py", "old": "percent > 100", "new": "percent >= 100",
+          "survived_original_tests": True}
+    c1 = ("import calc\ncalc._MARKER = 1\n"
+          "def test_bug1_marker():\n    assert calc._MARKER == 1\n"
+          "def test_bug1_adult():\n    from calc import is_adult\n    assert is_adult(18) is True\n")
+    c2 = ("import calc\ncalc._MARKER = 2\n"
+          "def test_bug2_marker():\n    assert calc._MARKER == 2\n"
+          "def test_bug2_disc():\n    from calc import discount\n    assert discount(200, 100) == 0\n")
+    merged = engine.build_test_file([(1, b1, c1), (2, b2, c2)], calc)
+    assert engine._merged_tests_pass(calc, merged) is False  # markers clash when merged
+    events = []
+    caught = engine._rescore_isolated(calc, [(1, b1, c1), (2, b2, c2)], [b1, b2], [b1, b2], 4,
+                                      lambda e, **d: events.append(e))
+    assert caught == 2
+    assert b1["survived_with_new_tests"] is False and b2["survived_with_new_tests"] is False
+    assert events.count("bug_after") == 2
+
+
 def test_no_tests_message_for_foreign_project(tmp_path):
     (tmp_path / "Main.java").write_text("class Main {}\n")
     p = Project(name="java", root=tmp_path, source="local")
