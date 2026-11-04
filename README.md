@@ -99,7 +99,7 @@ Two interfaces, one engine. Every run flows through the same pipeline no matter 
 
 ## 🧰 Built with
 
-**Core** — Python 3.10+, Flask, pytest · **AI** — Meta Muse Spark (Meta Model API), Baseten + custom OpenAI-compatible providers · **Packaging** — Docker, GitHub Action (`action.yml`) · **Test runners driven** — pytest, node:test, go test, Maven, Gradle, cargo, RSpec, minitest, PHPUnit, dotnet, kotlinc + JUnit · **Site** — hand-written HTML/CSS on GitHub Pages.
+**Core** — Python 3.10+, Flask, pytest · **AI** — Meta Muse Spark (Meta Model API) · **Packaging** — Docker, GitHub Action (`action.yml`) · **Test runners driven** — pytest, node:test, go test, Maven, Gradle, cargo, RSpec, minitest, PHPUnit, dotnet, kotlinc + JUnit · **Site** — hand-written HTML/CSS on GitHub Pages.
 
 ## 🚀 Quick start
 
