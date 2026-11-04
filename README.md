@@ -121,6 +121,8 @@ python main.py . --fail-under 70                   # exit 1 unless 70%+ caught
 python main.py --install-hook ~/code/my-project   # block weak commits
 ```
 
+> Paths like `~/code/my-project` and `app/models.py` are examples from the author's computer — replace them with your own project and files.
+
 ## 🤖 Gates & pull requests
 
 Add `GITHUB_TOKEN` to `.env`, then **Open pull request** from the dashboard (`python github_pr.py <project>` on the CLI). Can't push to the repo? BugBait forks first — strangers never get surprise PRs.
